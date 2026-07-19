@@ -18,7 +18,8 @@ async fn lists_all_servers_across_pages() {
     assert_eq!(servers[0].feature_limits.backups, Some(3));
     assert_eq!(servers[2].name, "Factorio");
     assert_eq!(
-        servers[2].limits.cpu, Some(0),
+        servers[2].limits.cpu,
+        Some(0),
         "unlimited CPU is represented as 0"
     );
 }
