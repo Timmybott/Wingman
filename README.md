@@ -2,14 +2,14 @@
 
 **A desktop client for [Pterodactyl](https://pterodactyl.io) with a one-click deploy workflow — think GitHub Desktop, but for your game servers.**
 
-> ⚠️ Wingman is in early development. Milestone M1 (panel connection + dashboard) is implemented; deploys, console and versioning are on the way. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
+> ⚠️ Wingman is in early development. Milestones M1 (panel connection + dashboard) and M2 (power actions, live console, live stats) are implemented; deploys and versioning are on the way. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
 
 ## What it does (and will do)
 
 Pick a local project folder, keep versions as git commits, and push them to your Pterodactyl server with a single click — while managing the servers right next to it.
 
 - ✅ **M1 — Connection & dashboard**: connect a panel with a client API key (stored in the OS keychain), see your servers as tiles with live status, CPU and RAM
-- 🔜 **M2 — Live servers**: power actions, streamed console, live stats via websocket
+- ✅ **M2 — Live servers**: power actions (start/stop/restart/kill), streamed console with command input, live stats over the Wings websocket (token refresh + auto-reconnect included)
 - 🔜 **M3 — Deploy**: link a project folder, zip → upload → extract via the panel's file API, `.deployignore`, target folder, post-deploy restart or notification
 - 🔜 **M4 — Versioning**: git-backed history, one-click rollback, automatic pre-deploy backups, optional build command
 - 🔜 **M5 — Comfort & release**: server file browser, auto-updater, first Windows + Linux releases

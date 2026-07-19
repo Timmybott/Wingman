@@ -23,6 +23,9 @@ pub enum Error {
     #[error("could not parse panel response: {0}")]
     Decode(String),
 
+    #[error("websocket error: {0}")]
+    Websocket(String),
+
     #[error("config error: {0}")]
     Config(String),
 }

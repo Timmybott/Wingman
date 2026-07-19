@@ -146,8 +146,8 @@ ist der Rettungsanker.
 
 **Prinzip:** Früh etwas Lauffähiges haben.
 
-- **M1 — Verbindung & Dashboard** ✅: Panel-URL + API-Key (Schlüsselbund), Serverliste, Kacheln mit Status, CPU/RAM (Polling als Übergangslösung)
-- **M2 — Server fühlt sich echt an:** Power-Buttons, Websocket → Live-Konsole + CPU/RAM live, Token-Refresh/Reconnect
+- **M1 — Verbindung & Dashboard** ✅: Panel-URL + API-Key (Schlüsselbund), Serverliste, Kacheln mit Status, CPU/RAM
+- **M2 — Server fühlt sich echt an** ✅: Power-Buttons (Kill zweistufig), Websocket → Live-Konsole mit Befehlseingabe + CPU/RAM live, Token-Refresh/Reconnect mit Backoff
 - **M3 — Deploy-Kern:** Projektordner verknüpfen, Zip → Upload → Entpacken → Zip-Cleanup, `.deployignore`, Manifest-Löschung, Zielordner, Verhalten nach Deploy, Desktop-Benachrichtigungen
 - **M4 — Versionierung:** git2-Integration, Commit-UI, Historie, Rollback (git archive), Auto-Backup mit Rotation + Warten aufs Backup-Event, optionaler Build-Befehl
 - **M5 — Komfort & Release:** Datei-Browser, Auto-Updater (Signatur-Schlüsselpaar!), Release-Builds Windows (NSIS) + Linux (AppImage, .deb), Repo aktiv bewerben
@@ -165,7 +165,8 @@ ist der Rettungsanker.
 ## 9. Offene Punkte
 
 - [ ] Logo/Icon entwerfen (aktuell Platzhalter: violettes „W")
-- [ ] M2 starten (Websocket, Power-Aktionen, Konsole)
+- [ ] M3 starten (Deploy-Kern: Projekt verknüpfen, Zip → Upload → Entpacken, .deployignore)
+- [x] M2 (Websocket, Power-Aktionen, Konsole) — 19.07.2026
 - [x] Name final festlegen (Wingman, Verfügbarkeit geprüft 07/2026)
 - [x] Frontend-Framework wählen (Svelte 5)
 - [x] Open-Source-Lizenz wählen (MIT)

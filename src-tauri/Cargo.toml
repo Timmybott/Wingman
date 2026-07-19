@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 wingman-core = { path = "../crates/wingman-core" }
 # OS keychain: Windows Credential Manager / Secret Service (GNOME Keyring, KWallet).
 # `vendored` statically links libdbus so Linux builds don't need libdbus-dev.

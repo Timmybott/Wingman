@@ -27,3 +27,13 @@ export function memoryPercent(bytes: number, limitMib: number): number | null {
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
+
+// CSI sequences (colors, cursor movement) and OSC sequences (window titles),
+// as emitted by game servers into their console output.
+// eslint-disable-next-line no-control-regex
+const ANSI_PATTERN = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
+/** Strip ANSI escape sequences and trailing carriage returns from a console line. */
+export function stripAnsi(line: string): string {
+  return line.replace(ANSI_PATTERN, "").replace(/\r+$/, "");
+}
