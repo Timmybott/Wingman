@@ -1,0 +1,20 @@
+[package]
+name = "wingman-core"
+description = "Core logic for Wingman: Pterodactyl client API, configuration, deploy engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+mock-panel = { path = "../mock-panel" }
+tokio = { workspace = true }
+tempfile = "3"

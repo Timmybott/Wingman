@@ -1,0 +1,23 @@
+[package]
+name = "wingman"
+description = "Wingman — desktop client for Pterodactyl with a one-click deploy workflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "wingman_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wingman-core = { path = "../crates/wingman-core" }
+# OS keychain: Windows Credential Manager / Secret Service (GNOME Keyring, KWallet).
+# `vendored` statically links libdbus so Linux builds don't need libdbus-dev.
+keyring = { version = "3", features = ["windows-native", "sync-secret-service", "vendored"] }
