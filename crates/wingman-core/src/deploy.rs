@@ -388,7 +388,8 @@ async fn ensure_backup(
     tx: &mpsc::Sender<DeployStep>,
 ) -> Result<(), Error> {
     let server = client.server_details(identifier).await?;
-    let limit = server.feature_limits.backups;
+    let limit = server.feature_limits.backups.unwrap_or(0);
+    
     if limit <= 0 {
         let _ = tx
             .send(DeployStep::BackupSkipped {
@@ -399,6 +400,7 @@ async fn ensure_backup(
     }
 
     let backups = client.list_backups(identifier).await?;
+    // Da 'limit' jetzt wieder ein i64 ist, funktioniert dieser Vergleich wieder:
     if backups.len() as i64 >= limit {
         let oldest_own = backups
             .iter()
