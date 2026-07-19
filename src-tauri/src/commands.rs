@@ -3,11 +3,15 @@
 
 use crate::secrets;
 use crate::AppState;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
+use wingman_core::deploy::{start_deploy, DeployStep};
 use wingman_core::models::{PowerSignal, Server, ServerStats};
 use wingman_core::ws::Outgoing;
-use wingman_core::{normalize_base_url, PanelClient, PanelConfig, ServerSocket};
+use wingman_core::{
+    normalize_base_url, PanelClient, PanelConfig, PostDeployAction, ProjectConfig, ServerSocket,
+};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -175,6 +179,129 @@ pub async fn send_console_command(
         .send(Outgoing::Command(command))
         .await
         .map_err(|_| "console connection closed".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Projects & deploy
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<ProjectConfig>> {
+    state.store.load_projects().map_err(|e| e.to_string())
+}
+
+/// Create or update a project. An empty id means "new". One project per
+/// server in v1 — a second link to the same server is rejected.
+#[tauri::command]
+pub fn save_project(
+    state: State<'_, AppState>,
+    mut project: ProjectConfig,
+) -> CmdResult<ProjectConfig> {
+    if !project.local_path.is_dir() {
+        return Err(format!(
+            "project folder does not exist: {}",
+            project.local_path.display()
+        ));
+    }
+    if project.id.is_empty() {
+        project.id = wingman_core::config::new_project_id();
+    }
+    if project.name.trim().is_empty() {
+        project.name = project
+            .local_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Project".into());
+    }
+
+    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
+    let clash = projects
+        .iter()
+        .any(|p| p.server_identifier == project.server_identifier && p.id != project.id);
+    if clash {
+        return Err("this server already has a linked project".into());
+    }
+    match projects.iter_mut().find(|p| p.id == project.id) {
+        Some(existing) => *existing = project.clone(),
+        None => projects.push(project.clone()),
+    }
+    state
+        .store
+        .save_projects(&projects)
+        .map_err(|e| e.to_string())?;
+    Ok(project)
+}
+
+#[tauri::command]
+pub fn delete_project(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
+    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
+    projects.retain(|p| p.id != project_id);
+    state
+        .store
+        .save_projects(&projects)
+        .map_err(|e| e.to_string())?;
+    let _ = state.store.delete_deploy_record(&project_id);
+    Ok(())
+}
+
+/// Kick off a deploy. Progress is emitted as `deploy-event-{project_id}`
+/// Tauri events; a second deploy of the same project while one is running
+/// is rejected. Desktop notifications fire on failure, and on success when
+/// the project's post-deploy behavior is "notify".
+#[tauri::command]
+pub async fn deploy_project(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+) -> CmdResult<()> {
+    let project = state
+        .store
+        .load_projects()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| "project not found".to_string())?;
+    let client = client_for(&state)?;
+
+    {
+        let mut running = state.deploys.lock().await;
+        if !running.insert(project_id.clone()) {
+            return Err("a deploy for this project is already running".into());
+        }
+    }
+
+    let store = state.store.clone();
+    let event_name = format!("deploy-event-{project_id}");
+    let mut handle = start_deploy(client, store, project.clone());
+    tauri::async_runtime::spawn(async move {
+        while let Some(step) = handle.events.recv().await {
+            match &step {
+                DeployStep::Done { files, .. } => {
+                    if project.post_deploy == PostDeployAction::Notify {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title(format!("Deploy finished — {}", project.name))
+                            .body(format!("{files} files deployed. Server was not restarted."))
+                            .show();
+                    }
+                }
+                DeployStep::Failed { message } => {
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(format!("Deploy failed — {}", project.name))
+                        .body(message.clone())
+                        .show();
+                }
+                _ => {}
+            }
+            let _ = app.emit(&event_name, &step);
+        }
+        let state: State<'_, AppState> = app.state();
+        state.deploys.lock().await.remove(&project_id);
+    });
+    Ok(())
 }
 
 async fn close_all_sockets(state: &AppState) {

@@ -7,8 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["multipart", "ws"] }
 futures-util = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["signal", "net", "sync", "time"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }

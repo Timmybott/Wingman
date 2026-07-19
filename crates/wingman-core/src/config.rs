@@ -34,15 +34,16 @@ pub enum PostDeployAction {
     Notify,
 }
 
-/// A local project linked to a server. Used from M3 on; defined now so the
-/// on-disk format is settled early.
+/// A local project linked to a server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     pub id: String,
     pub name: String,
     pub local_path: PathBuf,
     pub panel_id: String,
-    pub server_uuid: String,
+    /// Short server identifier (e.g. `d3aac109`) — the file API is addressed
+    /// with this, not the long UUID.
+    pub server_identifier: String,
     /// Deploy target relative to the server root; empty = server root.
     #[serde(default)]
     pub target_dir: String,
@@ -58,8 +59,25 @@ fn default_true() -> bool {
     true
 }
 
+/// Fresh id for a new project (also usable for other config entities).
+pub fn new_project_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// What the last successful deploy of a project contained. The manifest
+/// feeds stale-file deletion (files removed locally get deleted remotely on
+/// the next deploy) and, from M4 on, the "commits since last deploy" footer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeployRecord {
+    /// Unix seconds of the last successful deploy.
+    pub timestamp: u64,
+    /// Relative paths (forward slashes) contained in that deploy.
+    pub manifest: Vec<String>,
+}
+
 /// Loads and saves the JSON config files. The directory is injected so the
 /// Tauri shell can pass the platform config dir and tests can use a temp dir.
+#[derive(Clone)]
 pub struct ConfigStore {
     dir: PathBuf,
 }
@@ -87,6 +105,52 @@ impl ConfigStore {
 
     pub fn save_projects(&self, projects: &[ProjectConfig]) -> Result<(), Error> {
         self.save_list("projects.json", projects)
+    }
+
+    pub fn load_deploy_record(&self, project_id: &str) -> Result<Option<DeployRecord>, Error> {
+        let path = self.deploy_record_path(project_id)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes =
+            fs::read(&path).map_err(|e| Error::Config(format!("read deploy record: {e}")))?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| Error::Config(format!("parse deploy record: {e}")))
+    }
+
+    pub fn save_deploy_record(&self, project_id: &str, record: &DeployRecord) -> Result<(), Error> {
+        let path = self.deploy_record_path(project_id)?;
+        let dir = path.parent().expect("deploy record path has a parent");
+        fs::create_dir_all(dir).map_err(|e| Error::Config(format!("create deploys dir: {e}")))?;
+        let json = serde_json::to_vec_pretty(record)
+            .map_err(|e| Error::Config(format!("serialize deploy record: {e}")))?;
+        let tmp = path.with_extension("json.tmp");
+        fs::write(&tmp, json).map_err(|e| Error::Config(format!("write deploy record: {e}")))?;
+        fs::rename(&tmp, &path).map_err(|e| Error::Config(format!("write deploy record: {e}")))?;
+        Ok(())
+    }
+
+    pub fn delete_deploy_record(&self, project_id: &str) -> Result<(), Error> {
+        let path = self.deploy_record_path(project_id)?;
+        if path.exists() {
+            fs::remove_file(&path)
+                .map_err(|e| Error::Config(format!("delete deploy record: {e}")))?;
+        }
+        Ok(())
+    }
+
+    /// Project ids are UUIDs we generate; reject anything else so an id can
+    /// never traverse out of the deploys directory.
+    fn deploy_record_path(&self, project_id: &str) -> Result<PathBuf, Error> {
+        let valid = !project_id.is_empty()
+            && project_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-');
+        if !valid {
+            return Err(Error::Config(format!("invalid project id `{project_id}`")));
+        }
+        Ok(self.dir.join("deploys").join(format!("{project_id}.json")))
     }
 
     fn load_list<T: serde::de::DeserializeOwned>(&self, file: &str) -> Result<Vec<T>, Error> {

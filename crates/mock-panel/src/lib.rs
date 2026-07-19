@@ -13,7 +13,7 @@
 //! Run standalone with `cargo run -p mock-panel`.
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -57,6 +57,8 @@ struct ServerRuntime {
     state: &'static str,
     /// Serialized Wings frames, fanned out to every connected websocket.
     events: broadcast::Sender<String>,
+    /// Virtual server filesystem: normalized relative path → contents.
+    files: HashMap<String, Vec<u8>>,
 }
 
 impl AppState {
@@ -68,7 +70,14 @@ impl AppState {
             ("c3d4e5f6", "offline"),
         ] {
             let (events, _) = broadcast::channel(64);
-            servers.insert(id.to_string(), ServerRuntime { state, events });
+            servers.insert(
+                id.to_string(),
+                ServerRuntime {
+                    state,
+                    events,
+                    files: HashMap::new(),
+                },
+            );
         }
         Self {
             servers: Arc::new(Mutex::new(servers)),
@@ -103,12 +112,61 @@ impl AppState {
             let _ = rt.events.send(stats_frame(new_state));
         }
     }
+
+    fn put_file(&self, id: &str, path: String, bytes: Vec<u8>) {
+        if let Some(rt) = self.servers.lock().unwrap().get_mut(id) {
+            rt.files.insert(path, bytes);
+        }
+    }
+
+    fn get_file(&self, id: &str, path: &str) -> Option<Vec<u8>> {
+        self.servers
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(|rt| rt.files.get(path).cloned())
+    }
+
+    /// Remove a path — an exact file match plus everything under it
+    /// (directory semantics, like the panel's delete endpoint).
+    fn remove_path(&self, id: &str, path: &str) {
+        if let Some(rt) = self.servers.lock().unwrap().get_mut(id) {
+            let prefix = format!("{path}/");
+            rt.files
+                .retain(|key, _| key != path && !key.starts_with(&prefix));
+        }
+    }
+
+    fn list_files(&self, id: &str) -> Vec<String> {
+        let mut files: Vec<String> = self
+            .servers
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|rt| rt.files.keys().cloned().collect())
+            .unwrap_or_default();
+        files.sort();
+        files
+    }
+}
+
+/// Join a panel-style root (`/`, `/app`) with a relative name into the
+/// normalized storage key used by the virtual filesystem (no leading slash).
+fn join_remote(root: &str, name: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for part in root.split('/').chain(name.split('/')) {
+        if !part.is_empty() && part != "." {
+            segments.push(part);
+        }
+    }
+    segments.join("/")
 }
 
 /// A running mock panel. The server task is aborted on drop.
 pub struct MockPanel {
     addr: SocketAddr,
     handle: JoinHandle<()>,
+    state: AppState,
 }
 
 impl MockPanel {
@@ -125,12 +183,17 @@ impl MockPanel {
         let listener = TcpListener::bind(addr).await.expect("bind mock panel");
         let addr = listener.local_addr().expect("local addr");
         let state = AppState::new(addr, options);
+        let router_state = state.clone();
         let handle = tokio::spawn(async move {
-            axum::serve(listener, router(state))
+            axum::serve(listener, router(router_state))
                 .await
                 .expect("serve mock panel");
         });
-        Self { addr, handle }
+        Self {
+            addr,
+            handle,
+            state,
+        }
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -139,6 +202,16 @@ impl MockPanel {
 
     pub fn base_url(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// Test inspection: all files on the server's virtual filesystem, sorted.
+    pub fn server_files(&self, id: &str) -> Vec<String> {
+        self.state.list_files(id)
+    }
+
+    /// Test inspection: contents of one file on the virtual filesystem.
+    pub fn file_contents(&self, id: &str, path: &str) -> Option<Vec<u8>> {
+        self.state.get_file(id, path)
     }
 }
 
@@ -154,7 +227,18 @@ fn router(state: AppState) -> Router {
         .route("/api/client/servers/{id}/resources", get(server_resources))
         .route("/api/client/servers/{id}/power", post(set_power))
         .route("/api/client/servers/{id}/websocket", get(websocket_details))
+        .route("/api/client/servers/{id}/files/upload", get(upload_url))
+        .route(
+            "/api/client/servers/{id}/files/decompress",
+            post(decompress_file),
+        )
+        .route("/api/client/servers/{id}/files/delete", post(delete_files))
+        .route(
+            "/api/client/servers/{id}/files/create-folder",
+            post(create_folder),
+        )
         .route("/node/ws/{id}", get(node_ws))
+        .route("/node/upload/{id}", post(node_upload))
         .with_state(state)
 }
 
@@ -329,6 +413,156 @@ async fn websocket_details(
         }
     }))
     .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// File API (virtual filesystem)
+// ---------------------------------------------------------------------------
+
+async fn upload_url(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    Json(json!({
+        "object": "signed_url",
+        "attributes": {
+            "url": format!("http://{}/node/upload/{id}?token=mock", app.addr)
+        }
+    }))
+    .into_response()
+}
+
+/// The node-side upload target the signed URL points at. Like Wings, it
+/// takes multipart `files` fields and a `directory` query parameter; the
+/// signed token replaces Bearer auth.
+async fn node_upload(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    mut multipart: Multipart,
+) -> Response {
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let directory = query
+        .get("directory")
+        .cloned()
+        .unwrap_or_else(|| "/".into());
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let Some(file_name) = field.file_name().map(str::to_string) else {
+            continue;
+        };
+        match field.bytes().await {
+            Ok(bytes) => app.put_file(&id, join_remote(&directory, &file_name), bytes.to_vec()),
+            Err(_) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "DaemonException",
+                    "Failed to read the uploaded file.",
+                )
+            }
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn decompress_file(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let file = body.get("file").and_then(Value::as_str).unwrap_or("");
+    let archive_path = join_remote(root, file);
+    let Some(bytes) = app.get_file(&id, &archive_path) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "DaemonException",
+            "The requested archive was not found.",
+        );
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "DaemonException",
+            "The archive could not be read.",
+        );
+    };
+    for index in 0..archive.len() {
+        let Ok(mut entry) = archive.by_index(index) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let mut contents = Vec::new();
+        if std::io::Read::read_to_end(&mut entry, &mut contents).is_ok() {
+            app.put_file(&id, join_remote(root, &name), contents);
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn delete_files(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let files = body
+        .get("files")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for file in files {
+        app.remove_path(&id, &join_remote(root, &file));
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// The virtual filesystem has no directory entries — creating a folder is a
+/// no-op that only validates the request, like a very forgiving panel.
+async fn create_folder(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(_body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 // ---------------------------------------------------------------------------

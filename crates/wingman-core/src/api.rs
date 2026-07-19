@@ -2,6 +2,7 @@
 
 use crate::error::Error;
 use crate::models::{ApiList, ApiObject, PowerSignal, Server, ServerStats, WebsocketDetails};
+use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -119,6 +120,106 @@ impl PanelClient {
         Ok(())
     }
 
+    /// Signed one-time URL for uploading files directly to the Wings node.
+    pub async fn upload_url(&self, identifier: &str) -> Result<String, Error> {
+        #[derive(Deserialize)]
+        struct SignedUrl {
+            url: String,
+        }
+        validate_identifier(identifier)?;
+        let obj: ApiObject<SignedUrl> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/files/upload"),
+                &[],
+            )
+            .await?;
+        Ok(obj.attributes.url)
+    }
+
+    /// Upload a zip archive to a signed URL, streamed from disk. `directory`
+    /// is the remote target (e.g. `/` or `/app`). `on_progress` receives
+    /// (bytes_sent, bytes_total) as the stream is consumed.
+    pub async fn upload_zip<F>(
+        &self,
+        signed_url: &str,
+        directory: &str,
+        archive: &std::path::Path,
+        remote_name: &str,
+        mut on_progress: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(u64, u64) + Send + 'static,
+    {
+        let mut url = Url::parse(signed_url).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        url.query_pairs_mut().append_pair("directory", directory);
+
+        let file = tokio::fs::File::open(archive).await?;
+        let total = file.metadata().await?.len();
+        let mut sent: u64 = 0;
+        let stream = tokio_util::io::ReaderStream::new(file).inspect(move |chunk| {
+            if let Ok(chunk) = chunk {
+                sent += chunk.len() as u64;
+                on_progress(sent, total);
+            }
+        });
+        let part =
+            reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total)
+                .file_name(remote_name.to_string())
+                .mime_str("application/zip")
+                .map_err(|e| Error::Deploy(e.to_string()))?;
+        let form = reqwest::multipart::Form::new().part("files", part);
+
+        let response = self.http.post(url).multipart(form).send().await?;
+        ensure_success(response).await?;
+        Ok(())
+    }
+
+    /// Unpack an archive on the server. `root` is the directory containing
+    /// `file`; entries are extracted into `root`.
+    pub async fn decompress_file(
+        &self,
+        identifier: &str,
+        root: &str,
+        file: &str,
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/decompress"),
+            &serde_json::json!({ "root": root, "file": file }),
+        )
+        .await
+    }
+
+    /// Delete files or directories, paths relative to `root`.
+    pub async fn delete_files(
+        &self,
+        identifier: &str,
+        root: &str,
+        files: &[String],
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/delete"),
+            &serde_json::json!({ "root": root, "files": files }),
+        )
+        .await
+    }
+
+    /// Create one directory level under `root`.
+    pub async fn create_folder(
+        &self,
+        identifier: &str,
+        root: &str,
+        name: &str,
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/create-folder"),
+            &serde_json::json!({ "root": root, "name": name }),
+        )
+        .await
+    }
+
     /// Credentials for the console/stats websocket on the Wings node.
     /// Tokens are short-lived (~10–15 min); fetch a fresh one to re-auth.
     pub async fn websocket_details(&self, identifier: &str) -> Result<WebsocketDetails, Error> {
@@ -146,6 +247,17 @@ impl PanelClient {
         let response = ensure_success(response).await?;
         let bytes = response.bytes().await?;
         serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))
+    }
+
+    /// POST a JSON body to an endpoint that answers 204 No Content.
+    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(), Error> {
+        let url = self
+            .base
+            .join(path)
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.post(url).json(body).send().await?;
+        ensure_success(response).await?;
+        Ok(())
     }
 }
 

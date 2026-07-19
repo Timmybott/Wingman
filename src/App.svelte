@@ -27,7 +27,7 @@
     {#if loading}
       <p class="muted center">Loading…</p>
     {:else if panel}
-      <Dashboard />
+      <Dashboard {panel} />
     {:else}
       <SetupScreen onConnected={(connected) => (panel = connected)} />
     {/if}

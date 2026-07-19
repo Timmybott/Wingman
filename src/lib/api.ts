@@ -2,7 +2,15 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PanelConfig, PowerSignal, Server, ServerEvent, ServerStats } from "./types";
+import type {
+  DeployStep,
+  PanelConfig,
+  PowerSignal,
+  ProjectConfig,
+  Server,
+  ServerEvent,
+  ServerStats,
+} from "./types";
 
 export function getPanel(): Promise<PanelConfig | null> {
   return invoke<PanelConfig | null>("get_panel");
@@ -59,4 +67,29 @@ export function onServerEvent(
   handler: (event: ServerEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<ServerEvent>(`server-event-${identifier}`, (e) => handler(e.payload));
+}
+
+export function listProjects(): Promise<ProjectConfig[]> {
+  return invoke<ProjectConfig[]>("list_projects");
+}
+
+/** Create (empty id) or update a project. */
+export function saveProject(project: ProjectConfig): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>("save_project", { project });
+}
+
+export function deleteProject(projectId: string): Promise<void> {
+  return invoke<void>("delete_project", { projectId });
+}
+
+/** Start a deploy; progress arrives via onDeployEvent. */
+export function deployProject(projectId: string): Promise<void> {
+  return invoke<void>("deploy_project", { projectId });
+}
+
+export function onDeployEvent(
+  projectId: string,
+  handler: (step: DeployStep) => void,
+): Promise<UnlistenFn> {
+  return listen<DeployStep>(`deploy-event-${projectId}`, (e) => handler(e.payload));
 }
