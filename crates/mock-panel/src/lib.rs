@@ -278,6 +278,20 @@ fn router(state: AppState) -> Router {
             get(backup_details).delete(delete_backup),
         )
         .route("/api/client/servers/{id}/files/list", get(list_files))
+        .route(
+            "/api/client/servers/{id}/files/contents",
+            get(file_contents_handler),
+        )
+        .route("/api/client/servers/{id}/files/write", post(write_file))
+        .route(
+            "/api/client/servers/{id}/files/compress",
+            post(compress_files),
+        )
+        .route(
+            "/api/client/servers/{id}/files/download",
+            get(download_url_handler),
+        )
+        .route("/node/dl/{id}", get(node_download))
         .route("/api/client/servers/{id}/files/upload", get(upload_url))
         .route(
             "/api/client/servers/{id}/files/decompress",
@@ -844,6 +858,190 @@ async fn list_files(
         .chain(files.iter().map(|(name, size)| entry(name, *size, true)))
         .collect();
     Json(json!({ "object": "list", "data": data })).into_response()
+}
+
+async fn file_contents_handler(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let file = query.get("file").cloned().unwrap_or_default();
+    match app.get_file(&id, &join_remote("/", &file)) {
+        Some(bytes) => bytes.into_response(),
+        None => not_found(),
+    }
+}
+
+async fn write_file(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let file = query.get("file").cloned().unwrap_or_default();
+    app.put_file(&id, join_remote("/", &file), body.to_vec());
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Server-side compression like Wings: the requested entries end up in a
+/// tar.gz stored next to them; the archive's file object is returned.
+async fn compress_files(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let requested: Vec<String> = body
+        .get("files")
+        .and_then(Value::as_array)
+        .map(|v| {
+            v.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let root_prefix = {
+        let key = join_remote(root, "");
+        if key.is_empty() {
+            String::new()
+        } else {
+            format!("{key}/")
+        }
+    };
+    let to_pack: Vec<(String, Vec<u8>)> = {
+        let servers = app.servers.lock().unwrap();
+        let Some(rt) = servers.get(&id) else {
+            return not_found();
+        };
+        let mut out = Vec::new();
+        for name in &requested {
+            let key = join_remote(root, name);
+            let dir_prefix = format!("{key}/");
+            for (path, contents) in &rt.files {
+                if path == &key || path.starts_with(&dir_prefix) {
+                    let rel = path
+                        .strip_prefix(&root_prefix)
+                        .unwrap_or(path.as_str())
+                        .to_string();
+                    out.push((rel, contents.clone()));
+                }
+            }
+        }
+        out
+    };
+
+    let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    for (rel, contents) in &to_pack {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        if builder
+            .append_data(&mut header, rel.as_str(), contents.as_slice())
+            .is_err()
+        {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DaemonException",
+                "Failed to build the archive.",
+            );
+        }
+    }
+    let Ok(data) = builder.into_inner().and_then(|enc| enc.finish()) else {
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DaemonException",
+            "Failed to finish the archive.",
+        );
+    };
+
+    let seq = app
+        .backup_seq
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let name = format!("wingman-archive-{seq}.tar.gz");
+    app.put_file(&id, join_remote(root, &name), data);
+    Json(json!({
+        "object": "file_object",
+        "attributes": {
+            "name": name,
+            "mode": "-rw-r--r--",
+            "size": 0,
+            "is_file": true,
+            "is_symlink": false,
+            "mimetype": "application/tar+gzip",
+            "created_at": "2026-07-19T00:00:00Z",
+            "modified_at": "2026-07-19T00:00:00Z"
+        }
+    }))
+    .into_response()
+}
+
+async fn download_url_handler(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let file = query.get("file").cloned().unwrap_or_default();
+    if app.get_file(&id, &join_remote("/", &file)).is_none() {
+        return not_found();
+    }
+    Json(json!({
+        "object": "signed_url",
+        "attributes": {
+            "url": format!(
+                "http://{}/node/dl/{id}?file={}",
+                app.addr,
+                urlencode(&file)
+            )
+        }
+    }))
+    .into_response()
+}
+
+/// Node-side download target of the signed URL — token auth is implied.
+async fn node_download(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let file = query.get("file").cloned().unwrap_or_default();
+    match app.get_file(&id, &join_remote("/", &file)) {
+        Some(bytes) => bytes.into_response(),
+        None => not_found(),
+    }
+}
+
+/// Just enough percent-encoding for the query values the mock produces.
+fn urlencode(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' | '/' => c.to_string(),
+            other => format!("%{:02X}", other as u32),
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

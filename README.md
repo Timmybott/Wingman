@@ -64,10 +64,22 @@ npm run check     # svelte-check
 npm test          # vitest
 ```
 
+## Multi-device sync
+
+Every deploy writes a small state marker to the server. Other Wingman
+installations connected to the same panel poll it and automatically pull new
+deploys into their local project folder — as long as their working tree is
+clean. Local uncommitted changes are never overwritten. Linking a project to
+a server with an empty local folder imports the server's current files first.
+
 ## Security
 
-API keys are stored exclusively in the operating system's keychain (Windows
-Credential Manager / Secret Service on Linux) — never in plain-text files.
+API keys are stored in the operating system's keychain (Windows Credential
+Manager / Secret Service on Linux). If no keychain is available — for example
+a minimal Linux setup without GNOME Keyring or KWallet — the key falls back
+to an obfuscated (not encrypted) file in Wingman's config directory so the
+app stays usable; install a Secret Service if you want keychain-grade
+protection.
 
 ## License
 

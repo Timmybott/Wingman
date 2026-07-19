@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use wingman_core::deploy::{start_deploy, start_rollback, DeployStep};
 use wingman_core::git;
 use wingman_core::models::{FileEntry, PowerSignal, Server, ServerStats};
+use wingman_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
 use wingman_core::ws::Outgoing;
 use wingman_core::{
     normalize_base_url, CommitInfo, DeployHandle, PanelClient, PanelConfig, PostDeployAction,
@@ -30,7 +31,7 @@ fn client_for(state: &AppState) -> CmdResult<PanelClient> {
         .into_iter()
         .next()
         .ok_or_else(|| "no panel configured".to_string())?;
-    let api_key = secrets::get_api_key(&panel.id)?;
+    let api_key = secrets::get_api_key(state.store.dir(), &panel.id)?;
     PanelClient::new(&panel.base_url, &api_key).map_err(|e| e.to_string())
 }
 
@@ -71,7 +72,7 @@ pub async fn save_panel(
         trimmed => trimmed.to_string(),
     };
     let panel = PanelConfig::new(display_name, url.to_string());
-    secrets::set_api_key(&panel.id, api_key.trim())?;
+    secrets::set_api_key(state.store.dir(), &panel.id, api_key.trim())?;
     state
         .store
         .save_panels(std::slice::from_ref(&panel))
@@ -86,7 +87,7 @@ pub async fn remove_panel(state: State<'_, AppState>) -> CmdResult<()> {
     let panels = state.store.load_panels().map_err(|e| e.to_string())?;
     for panel in &panels {
         // Best effort: a missing keychain entry must not block disconnecting.
-        let _ = secrets::delete_api_key(&panel.id);
+        let _ = secrets::delete_api_key(state.store.dir(), &panel.id);
     }
     state.store.save_panels(&[]).map_err(|e| e.to_string())
 }
@@ -298,6 +299,76 @@ pub async fn rollback_project(
     let handle = start_rollback(client, state.store.clone(), project.clone(), commit_id);
     forward_engine_events(app, project, project_id, handle, "Rollback");
     Ok(())
+}
+
+/// Pull the server state into the local folder. `mode` is "import" (only
+/// into an empty folder, right after linking) or "sync" (only with a clean
+/// working tree — multi-device sync). Progress shares the deploy-event
+/// channel.
+#[tauri::command]
+pub async fn pull_project(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    mode: String,
+) -> CmdResult<()> {
+    let mode = match mode.as_str() {
+        "import" => PullMode::InitialImport,
+        "sync" => PullMode::SyncIfClean,
+        other => return Err(format!("unknown pull mode `{other}`")),
+    };
+    let project = find_project(&state, &project_id)?;
+    let client = client_for(&state)?;
+    claim_engine_slot(&state, &project_id).await?;
+    let handle = start_pull(client, state.store.clone(), project.clone(), mode);
+    forward_engine_events(app, project, project_id, handle, "Sync");
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct RemoteDeployInfo {
+    /// A different deploy than this device's record exists on the server.
+    pub newer: bool,
+    /// Local uncommitted changes — auto-sync must not run.
+    pub dirty: bool,
+}
+
+/// Poll target for multi-device sync: does the server announce a deploy
+/// this device hasn't picked up yet?
+#[tauri::command]
+pub async fn check_remote_deploy(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> CmdResult<RemoteDeployInfo> {
+    let project = find_project(&state, &project_id)?;
+    let client = client_for(&state)?;
+    let Some(remote) = read_remote_state(&client, &project)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(RemoteDeployInfo {
+            newer: false,
+            dirty: false,
+        });
+    };
+    let record = state
+        .store
+        .load_deploy_record(&project_id)
+        .map_err(|e| e.to_string())?;
+    let newer = is_newer(&remote, record.as_ref());
+    let dirty = if newer {
+        let path = project.local_path.clone();
+        tokio::task::spawn_blocking(move || -> Result<bool, wingman_core::Error> {
+            git::ensure_repo(&path)?;
+            Ok(git::status(&path)?.dirty)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
+    } else {
+        false
+    };
+    Ok(RemoteDeployInfo { newer, dirty })
 }
 
 async fn claim_engine_slot(state: &AppState, project_id: &str) -> CmdResult<()> {

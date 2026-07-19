@@ -8,8 +8,10 @@ repository.workspace = true
 
 [dependencies]
 axum = { version = "0.8", features = ["multipart", "ws"] }
+flate2 = "1"
 futures-util = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
+tar = "0.4"
 tokio = { workspace = true, features = ["signal", "net", "sync", "time"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }

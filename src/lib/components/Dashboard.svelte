@@ -2,12 +2,14 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
+    checkRemoteDeploy,
     deployProject,
     deployStatus,
     listProjects,
     listServers,
     onDeployEvent,
     onServerEvent,
+    pullProject,
     rollbackProject,
     sendConsoleCommand,
     serverResources,
@@ -32,6 +34,8 @@
   import ServerCard from "./ServerCard.svelte";
 
   const CONSOLE_BUFFER_LINES = 500;
+  /** How often each project checks the server for deploys from other devices. */
+  const SYNC_POLL_MS = 30_000;
 
   let { panel }: { panel: PanelConfig } = $props();
 
@@ -163,6 +167,7 @@
   }
 
   onMount(() => {
+    let syncTimer: ReturnType<typeof setInterval> | undefined;
     (async () => {
       try {
         [servers, projects] = await Promise.all([listServers(), listProjects()]);
@@ -178,6 +183,8 @@
           serverUnlisteners.push(await onServerEvent(id, (event) => handleEvent(id, event)));
           await subscribeServer(id);
         }
+        void syncCheck();
+        syncTimer = setInterval(syncCheck, SYNC_POLL_MS);
       } catch (e) {
         error = String(e);
       } finally {
@@ -186,6 +193,7 @@
     })();
     return () => {
       cancelled = true;
+      if (syncTimer) clearInterval(syncTimer);
       for (const unlisten of serverUnlisteners) unlisten();
       for (const unlisten of deployUnlisteners.values()) unlisten();
       for (const server of servers) void unsubscribeServer(server.identifier);
@@ -209,6 +217,53 @@
     }
   }
 
+  function deployRunning(projectId: string): boolean {
+    const step = deploys[projectId]?.step;
+    return step !== undefined && step !== "done" && step !== "failed";
+  }
+
+  async function pull(project: ProjectConfig, mode: "import" | "sync") {
+    deploys[project.id] = { step: "downloading", percent: 0 };
+    try {
+      await pullProject(project.id, mode);
+    } catch (e) {
+      deploys[project.id] = { step: "failed", message: String(e) };
+    }
+  }
+
+  /** Multi-device sync: pull deploys made on other devices automatically. */
+  const dirtyNotified = new Set<string>();
+  async function syncCheck() {
+    for (const project of [...projects]) {
+      if (cancelled || deployRunning(project.id)) continue;
+      try {
+        const info = await checkRemoteDeploy(project.id);
+        if (!info.newer) {
+          dirtyNotified.delete(project.id);
+          continue;
+        }
+        if (info.dirty) {
+          if (!dirtyNotified.has(project.id)) {
+            dirtyNotified.add(project.id);
+            appendConsole(
+              project.server_identifier,
+              "[wingman] a newer deploy from another device exists — commit or deploy your local changes to sync",
+            );
+          }
+          continue;
+        }
+        dirtyNotified.delete(project.id);
+        appendConsole(
+          project.server_identifier,
+          "[wingman] newer deploy from another device detected — syncing local folder",
+        );
+        await pull(project, "sync");
+      } catch {
+        // Polling is best effort; the next tick retries.
+      }
+    }
+  }
+
   async function rollback(project: ProjectConfig, commitId: string) {
     deploys[project.id] = { step: "checking_out" };
     try {
@@ -220,13 +275,25 @@
 
   function projectSaved(saved: ProjectConfig) {
     const index = projects.findIndex((p) => p.id === saved.id);
-    if (index >= 0) {
-      projects[index] = saved;
-    } else {
+    const isNew = index < 0;
+    if (isNew) {
       projects.push(saved);
+    } else {
+      projects[index] = saved;
     }
-    void watchProject(saved);
     dialogServer = null;
+    void (async () => {
+      await watchProject(saved);
+      if (isNew) {
+        // Fill the fresh link with the server's current files. The engine
+        // skips on its own when the folder already has content.
+        appendConsole(
+          saved.server_identifier,
+          "[wingman] importing current server files into the linked folder…",
+        );
+        await pull(saved, "import");
+      }
+    })();
   }
 
   function projectUnlinked(projectId: string) {

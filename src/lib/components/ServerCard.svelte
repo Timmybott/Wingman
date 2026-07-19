@@ -66,23 +66,25 @@
         }[powerState],
   );
 
-  const cpu = $derived(stats ? cpuPercent(stats.cpu_absolute, server.limits.cpu) : null);
-  const memory = $derived(
-    stats ? memoryPercent(stats.memory_bytes, server.limits.memory) : null,
-  );
+  // Real panels may return null limits (= unlimited); treat like 0.
+  const cpuLimit = $derived(server.limits.cpu ?? 0);
+  const memoryLimit = $derived(server.limits.memory ?? 0);
+
+  const cpu = $derived(stats ? cpuPercent(stats.cpu_absolute, cpuLimit) : null);
+  const memory = $derived(stats ? memoryPercent(stats.memory_bytes, memoryLimit) : null);
 
   const cpuLabel = $derived(
     stats
-      ? server.limits.cpu > 0
-        ? `${stats.cpu_absolute.toFixed(1)} / ${server.limits.cpu}%`
+      ? cpuLimit > 0
+        ? `${stats.cpu_absolute.toFixed(1)} / ${cpuLimit}%`
         : `${stats.cpu_absolute.toFixed(1)}%`
       : "–",
   );
 
   const memoryLabel = $derived(
     stats
-      ? server.limits.memory > 0
-        ? `${formatBytes(stats.memory_bytes)} / ${formatMib(server.limits.memory)}`
+      ? memoryLimit > 0
+        ? `${formatBytes(stats.memory_bytes)} / ${formatMib(memoryLimit)}`
         : formatBytes(stats.memory_bytes)
       : "–",
   );
@@ -113,6 +115,10 @@
         return `Packing ${deploy.files} files…`;
       case "uploading":
         return `Uploading ${deploy.percent} %`;
+      case "downloading":
+        return `Downloading ${deploy.percent} %`;
+      case "importing":
+        return "Importing files…";
       case "extracting":
         return "Extracting…";
       case "cleaning_up":
@@ -125,7 +131,7 @@
   });
 
   const deployPercent = $derived(
-    deploy?.step === "uploading" ? deploy.percent : null,
+    deploy?.step === "uploading" || deploy?.step === "downloading" ? deploy.percent : null,
   );
 
   async function power(signal: PowerSignal) {

@@ -90,6 +90,15 @@ fn assert_done(steps: &[DeployStep]) -> (usize, usize) {
     }
 }
 
+/// Server files without the multi-device sync marker every deploy writes.
+fn visible_files(panel: &MockPanel, server: &str) -> Vec<String> {
+    panel
+        .server_files(server)
+        .into_iter()
+        .filter(|f| !f.ends_with(wingman_core::sync::STATE_FILE))
+        .collect()
+}
+
 #[tokio::test]
 async fn deploys_to_server_root_honoring_deployignore() {
     let panel = MockPanel::spawn().await;
@@ -107,7 +116,7 @@ async fn deploys_to_server_root_honoring_deployignore() {
     assert_eq!(deleted, 0);
 
     assert_eq!(
-        panel.server_files(SERVER),
+        visible_files(&panel, SERVER),
         vec!["config/settings.yml", "index.js"],
         "only non-ignored files, and the uploaded archive is cleaned up"
     );
@@ -132,7 +141,7 @@ async fn deploys_into_a_subdirectory() {
     assert_done(&steps);
 
     assert_eq!(
-        panel.server_files(SERVER),
+        visible_files(&panel, SERVER),
         vec!["app/config/settings.yml", "app/index.js"]
     );
 }
@@ -146,7 +155,7 @@ async fn second_deploy_deletes_files_removed_locally() {
 
     assert_done(&run_deploy(&panel, &store, &project).await);
     assert_eq!(
-        panel.server_files(SERVER),
+        visible_files(&panel, SERVER),
         vec!["config/settings.yml", "index.js"]
     );
 
@@ -157,7 +166,7 @@ async fn second_deploy_deletes_files_removed_locally() {
     assert_eq!(deleted, 1, "settings.yml was in the last manifest");
 
     assert_eq!(
-        panel.server_files(SERVER),
+        visible_files(&panel, SERVER),
         vec!["index.js"],
         "the locally deleted file is gone remotely too"
     );
@@ -208,6 +217,8 @@ fn step_kinds(steps: &[DeployStep]) -> Vec<&'static str> {
             DeployStep::Scanning => "scanning",
             DeployStep::Packing { .. } => "packing",
             DeployStep::Uploading { .. } => "uploading",
+            DeployStep::Downloading { .. } => "downloading",
+            DeployStep::Importing => "importing",
             DeployStep::Extracting => "extracting",
             DeployStep::CleaningUp => "cleaning_up",
             DeployStep::Restarting => "restarting",
@@ -470,9 +481,17 @@ async fn file_listing_reflects_a_deploy() {
     );
 
     let root = client.list_files(SERVER, "/").await.unwrap();
-    let names: Vec<(&str, bool)> = root.iter().map(|e| (e.name.as_str(), e.is_file)).collect();
+    let names: Vec<(&str, bool)> = root
+        .iter()
+        .filter(|e| e.name != wingman_core::sync::STATE_FILE)
+        .map(|e| (e.name.as_str(), e.is_file))
+        .collect();
     assert_eq!(names, vec![("config", false), ("index.js", true)]);
     assert!(root.iter().any(|e| e.is_file && e.size > 0));
+    // The sync marker itself is part of the listing.
+    assert!(root
+        .iter()
+        .any(|e| e.name == wingman_core::sync::STATE_FILE));
 
     let sub = client.list_files(SERVER, "/config").await.unwrap();
     assert_eq!(sub.len(), 1);

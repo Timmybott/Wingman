@@ -201,6 +201,109 @@ impl PanelClient {
         Ok(list.data.into_iter().map(|o| o.attributes).collect())
     }
 
+    /// Raw contents of one server file (`GET .../files/contents`).
+    pub async fn read_file(&self, identifier: &str, file: &str) -> Result<Vec<u8>, Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/files/contents"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.get(url).query(&[("file", file)]).send().await?;
+        let response = ensure_success(response).await?;
+        Ok(response.bytes().await?.to_vec())
+    }
+
+    /// Write raw contents to one server file (`POST .../files/write`).
+    pub async fn write_file(
+        &self,
+        identifier: &str,
+        file: &str,
+        contents: Vec<u8>,
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/files/write"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self
+            .http
+            .post(url)
+            .query(&[("file", file)])
+            .body(contents)
+            .send()
+            .await?;
+        ensure_success(response).await?;
+        Ok(())
+    }
+
+    /// Compress files/directories under `root` into an archive on the server
+    /// (Wings produces a `.tar.gz`). Returns the archive's file entry.
+    pub async fn compress_files(
+        &self,
+        identifier: &str,
+        root: &str,
+        files: &[String],
+    ) -> Result<FileEntry, Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/files/compress"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self
+            .http
+            .post(url)
+            .json(&serde_json::json!({ "root": root, "files": files }))
+            .send()
+            .await?;
+        let response = ensure_success(response).await?;
+        let bytes = response.bytes().await?;
+        let entry: ApiObject<FileEntry> =
+            serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))?;
+        Ok(entry.attributes)
+    }
+
+    /// Signed one-time URL for downloading a server file.
+    pub async fn download_url(&self, identifier: &str, file: &str) -> Result<String, Error> {
+        #[derive(Deserialize)]
+        struct SignedUrl {
+            url: String,
+        }
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/files/download"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.get(url).query(&[("file", file)]).send().await?;
+        let response = ensure_success(response).await?;
+        let bytes = response.bytes().await?;
+        let signed: ApiObject<SignedUrl> =
+            serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))?;
+        Ok(signed.attributes.url)
+    }
+
+    /// Download raw bytes from a signed URL, reporting (received, total).
+    pub async fn download_bytes<F>(
+        &self,
+        signed_url: &str,
+        mut on_progress: F,
+    ) -> Result<Vec<u8>, Error>
+    where
+        F: FnMut(u64, u64) + Send,
+    {
+        let url = Url::parse(signed_url).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.get(url).send().await?;
+        let response = ensure_success(response).await?;
+        let total = response.content_length().unwrap_or(0);
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            bytes.extend_from_slice(&chunk);
+            on_progress(bytes.len() as u64, total);
+        }
+        Ok(bytes)
+    }
+
     /// Signed one-time URL for uploading files directly to the Wings node.
     pub async fn upload_url(&self, identifier: &str) -> Result<String, Error> {
         #[derive(Deserialize)]

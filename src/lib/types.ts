@@ -7,20 +7,20 @@ export interface PanelConfig {
 }
 
 export interface ServerLimits {
-  /** MiB, 0 = unlimited */
-  memory: number;
-  swap: number;
-  /** MiB, 0 = unlimited */
-  disk: number;
+  /** MiB, 0/null = unlimited */
+  memory: number | null;
+  swap: number | null;
+  /** MiB, 0/null = unlimited */
+  disk: number | null;
   io: number | null;
-  /** percent across cores, 0 = unlimited */
-  cpu: number;
+  /** percent across cores, 0/null = unlimited */
+  cpu: number | null;
 }
 
 export interface FeatureLimits {
-  databases: number;
-  allocations: number;
-  backups: number;
+  databases: number | null;
+  allocations: number | null;
+  backups: number | null;
 }
 
 export interface Server {
@@ -82,6 +82,8 @@ export type DeployStep =
   | { step: "scanning" }
   | { step: "packing"; files: number }
   | { step: "uploading"; percent: number }
+  | { step: "downloading"; percent: number }
+  | { step: "importing" }
   | { step: "extracting" }
   | { step: "cleaning_up" }
   | { step: "restarting" }
@@ -112,6 +114,11 @@ export interface RepoStatus {
 export interface DeployStatus {
   last_deploy: { timestamp: number; commit: string | null } | null;
   commits_since: number | null;
+}
+
+export interface RemoteDeployInfo {
+  newer: boolean;
+  dirty: boolean;
 }
 
 /** One entry of a server directory listing. */
