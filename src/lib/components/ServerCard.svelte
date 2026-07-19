@@ -1,17 +1,36 @@
 <script lang="ts">
   import { cpuPercent, formatBytes, formatMib, memoryPercent } from "../format";
-  import type { LiveState, PowerSignal, PowerState, Server } from "../types";
+  import type {
+    DeployStep,
+    LiveState,
+    PowerSignal,
+    PowerState,
+    ProjectConfig,
+    Server,
+  } from "../types";
 
   let {
     server,
     live,
+    project,
+    deploy,
     onPower,
     onOpenConsole,
+    onDeploy,
+    onConfigureProject,
+    onOpenHistory,
+    onOpenFiles,
   }: {
     server: Server;
     live: LiveState;
+    project: ProjectConfig | null;
+    deploy: DeployStep | null;
     onPower: (signal: PowerSignal) => Promise<void>;
     onOpenConsole: () => void;
+    onDeploy: () => void;
+    onConfigureProject: () => void;
+    onOpenHistory: () => void;
+    onOpenFiles: () => void;
   } = $props();
 
   let busy = $state(false);
@@ -72,6 +91,43 @@
   const canStop = $derived(powerState === "running");
   const showKill = $derived(powerState !== "offline" && powerState !== "unknown");
 
+  // Deploy state shown directly on the tile (spec: "Backup erstellt · Upload 68 %").
+  const deployRunning = $derived(
+    deploy !== null && deploy.step !== "done" && deploy.step !== "failed",
+  );
+
+  const deployLabel = $derived.by(() => {
+    if (!deploy) return null;
+    switch (deploy.step) {
+      case "committing":
+        return "Committing…";
+      case "checking_out":
+        return "Checking out…";
+      case "building":
+        return "Building…";
+      case "backing_up":
+        return "Backing up…";
+      case "scanning":
+        return "Scanning…";
+      case "packing":
+        return `Packing ${deploy.files} files…`;
+      case "uploading":
+        return `Uploading ${deploy.percent} %`;
+      case "extracting":
+        return "Extracting…";
+      case "cleaning_up":
+        return "Cleaning up…";
+      case "restarting":
+        return "Restarting…";
+      default:
+        return null;
+    }
+  });
+
+  const deployPercent = $derived(
+    deploy?.step === "uploading" ? deploy.percent : null,
+  );
+
   async function power(signal: PowerSignal) {
     busy = true;
     try {
@@ -127,10 +183,50 @@
     </div>
   </div>
 
+  {#if deployRunning && deployLabel}
+    <div class="deploy-progress">
+      <div class="deploy-label">
+        <span>{deployLabel}</span>
+      </div>
+      <div class="bar">
+        <div
+          class="fill deploy-fill"
+          class:indeterminate={deployPercent === null}
+          style="width: {deployPercent ?? 100}%"
+        ></div>
+      </div>
+    </div>
+  {:else if deploy?.step === "failed"}
+    <p class="deploy-note error" title={deploy.message}>Deploy failed: {deploy.message}</p>
+  {:else if deploy?.step === "done"}
+    <p class="deploy-note ok">
+      Deployed ✓ {deploy.files} files{deploy.deleted > 0 ? `, ${deploy.deleted} removed` : ""}
+    </p>
+  {/if}
+
   <div class="card-actions">
-    <button class="primary deploy" disabled title="Deploy arrives in milestone M3">
-      Deploy
-    </button>
+    {#if project}
+      <button
+        class="primary deploy"
+        onclick={onDeploy}
+        disabled={deployRunning}
+        title="Deploy {project.name} to this server"
+      >
+        Deploy
+      </button>
+      <button
+        class="ghost"
+        onclick={onConfigureProject}
+        disabled={deployRunning}
+        title="Project settings"
+      >
+        ⚙
+      </button>
+    {:else}
+      <button class="primary deploy" onclick={onConfigureProject} title="Link a local project folder">
+        Link project…
+      </button>
+    {/if}
     {#if canStart}
       <button onclick={() => power("start")} disabled={busy} title="Start server">▶</button>
     {:else}
@@ -155,6 +251,15 @@
       </button>
     {/if}
     <button class="ghost" onclick={onOpenConsole}>Console</button>
+    <button
+      class="ghost"
+      onclick={onOpenHistory}
+      disabled={!project}
+      title={project ? "Commit history & rollback" : "Link a project first"}
+    >
+      History
+    </button>
+    <button class="ghost" onclick={onOpenFiles} title="Browse server files">Files</button>
   </div>
 </article>
 
@@ -239,5 +344,40 @@
     background: var(--danger);
     border-color: var(--danger);
     color: #fff;
+  }
+
+  .deploy-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .deploy-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .deploy-fill.indeterminate {
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .deploy-note {
+    margin: 0;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

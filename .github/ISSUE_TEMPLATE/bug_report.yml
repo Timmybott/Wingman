@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in Wingman doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: |
+        1. Linked a project to my server
+        2. Clicked Deploy
+        3. The deploy failed at "Extracting" with …
+    validations:
+      required: true
+  - type: input
+    id: wingman-version
+    attributes:
+      label: Wingman version
+      placeholder: "0.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: panel-version
+    attributes:
+      label: Pterodactyl panel version
+      placeholder: "1.11.x"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error messages
+      description: Error text from the tile, console output, notifications — anything you saw.
+      render: text
+    validations:
+      required: false

@@ -1,7 +1,10 @@
 //! HTTP client for the Pterodactyl client API (`/api/client`).
 
 use crate::error::Error;
-use crate::models::{ApiList, ApiObject, PowerSignal, Server, ServerStats, WebsocketDetails};
+use crate::models::{
+    ApiList, ApiObject, Backup, FileEntry, PowerSignal, Server, ServerStats, WebsocketDetails,
+};
+use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -93,6 +96,69 @@ impl PanelClient {
         Ok(servers)
     }
 
+    /// Full details of one server (limits, feature limits, …).
+    pub async fn server_details(&self, identifier: &str) -> Result<Server, Error> {
+        validate_identifier(identifier)?;
+        let server: ApiObject<Server> = self
+            .get_json(&format!("api/client/servers/{identifier}"), &[])
+            .await?;
+        Ok(server.attributes)
+    }
+
+    /// All backups of a server.
+    pub async fn list_backups(&self, identifier: &str) -> Result<Vec<Backup>, Error> {
+        validate_identifier(identifier)?;
+        let list: ApiList<Backup> = self
+            .get_json(&format!("api/client/servers/{identifier}/backups"), &[])
+            .await?;
+        Ok(list.data.into_iter().map(|o| o.attributes).collect())
+    }
+
+    /// Start a new backup. Creation is asynchronous — poll
+    /// [`Self::backup_details`] until `completed_at` is set.
+    pub async fn create_backup(&self, identifier: &str, name: &str) -> Result<Backup, Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/backups"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self
+            .http
+            .post(url)
+            .json(&serde_json::json!({ "name": name }))
+            .send()
+            .await?;
+        let response = ensure_success(response).await?;
+        let bytes = response.bytes().await?;
+        let backup: ApiObject<Backup> =
+            serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))?;
+        Ok(backup.attributes)
+    }
+
+    pub async fn backup_details(&self, identifier: &str, uuid: &str) -> Result<Backup, Error> {
+        validate_identifier(identifier)?;
+        validate_identifier(uuid)?;
+        let backup: ApiObject<Backup> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/backups/{uuid}"),
+                &[],
+            )
+            .await?;
+        Ok(backup.attributes)
+    }
+
+    pub async fn delete_backup(&self, identifier: &str, uuid: &str) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        validate_identifier(uuid)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/backups/{uuid}"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.delete(url).send().await?;
+        ensure_success(response).await?;
+        Ok(())
+    }
+
     /// Power state and live resource usage of one server.
     pub async fn server_resources(&self, identifier: &str) -> Result<ServerStats, Error> {
         validate_identifier(identifier)?;
@@ -117,6 +183,122 @@ impl PanelClient {
             .await?;
         ensure_success(response).await?;
         Ok(())
+    }
+
+    /// Directory listing for the server file browser.
+    pub async fn list_files(
+        &self,
+        identifier: &str,
+        directory: &str,
+    ) -> Result<Vec<FileEntry>, Error> {
+        validate_identifier(identifier)?;
+        let list: ApiList<FileEntry> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/files/list"),
+                &[("directory", directory.to_string())],
+            )
+            .await?;
+        Ok(list.data.into_iter().map(|o| o.attributes).collect())
+    }
+
+    /// Signed one-time URL for uploading files directly to the Wings node.
+    pub async fn upload_url(&self, identifier: &str) -> Result<String, Error> {
+        #[derive(Deserialize)]
+        struct SignedUrl {
+            url: String,
+        }
+        validate_identifier(identifier)?;
+        let obj: ApiObject<SignedUrl> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/files/upload"),
+                &[],
+            )
+            .await?;
+        Ok(obj.attributes.url)
+    }
+
+    /// Upload a zip archive to a signed URL, streamed from disk. `directory`
+    /// is the remote target (e.g. `/` or `/app`). `on_progress` receives
+    /// (bytes_sent, bytes_total) as the stream is consumed.
+    pub async fn upload_zip<F>(
+        &self,
+        signed_url: &str,
+        directory: &str,
+        archive: &std::path::Path,
+        remote_name: &str,
+        mut on_progress: F,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(u64, u64) + Send + 'static,
+    {
+        let mut url = Url::parse(signed_url).map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        url.query_pairs_mut().append_pair("directory", directory);
+
+        let file = tokio::fs::File::open(archive).await?;
+        let total = file.metadata().await?.len();
+        let mut sent: u64 = 0;
+        let stream = tokio_util::io::ReaderStream::new(file).inspect(move |chunk| {
+            if let Ok(chunk) = chunk {
+                sent += chunk.len() as u64;
+                on_progress(sent, total);
+            }
+        });
+        let part =
+            reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total)
+                .file_name(remote_name.to_string())
+                .mime_str("application/zip")
+                .map_err(|e| Error::Deploy(e.to_string()))?;
+        let form = reqwest::multipart::Form::new().part("files", part);
+
+        let response = self.http.post(url).multipart(form).send().await?;
+        ensure_success(response).await?;
+        Ok(())
+    }
+
+    /// Unpack an archive on the server. `root` is the directory containing
+    /// `file`; entries are extracted into `root`.
+    pub async fn decompress_file(
+        &self,
+        identifier: &str,
+        root: &str,
+        file: &str,
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/decompress"),
+            &serde_json::json!({ "root": root, "file": file }),
+        )
+        .await
+    }
+
+    /// Delete files or directories, paths relative to `root`.
+    pub async fn delete_files(
+        &self,
+        identifier: &str,
+        root: &str,
+        files: &[String],
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/delete"),
+            &serde_json::json!({ "root": root, "files": files }),
+        )
+        .await
+    }
+
+    /// Create one directory level under `root`.
+    pub async fn create_folder(
+        &self,
+        identifier: &str,
+        root: &str,
+        name: &str,
+    ) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        self.post_json(
+            &format!("api/client/servers/{identifier}/files/create-folder"),
+            &serde_json::json!({ "root": root, "name": name }),
+        )
+        .await
     }
 
     /// Credentials for the console/stats websocket on the Wings node.
@@ -146,6 +328,17 @@ impl PanelClient {
         let response = ensure_success(response).await?;
         let bytes = response.bytes().await?;
         serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))
+    }
+
+    /// POST a JSON body to an endpoint that answers 204 No Content.
+    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<(), Error> {
+        let url = self
+            .base
+            .join(path)
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.post(url).json(body).send().await?;
+        ensure_success(response).await?;
+        Ok(())
     }
 }
 

@@ -8,16 +8,22 @@ repository.workspace = true
 
 [dependencies]
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+# Local repository operations only — no https/ssh transports needed, which
+# keeps openssl/libssh2 out of the build.
+git2 = { version = "0.20", default-features = false }
+ignore = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = "3"
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.27", features = ["rustls-tls-native-roots"] }
+tokio-util = { version = "0.7", features = ["io"] }
 url = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 mock-panel = { path = "../mock-panel" }
-tempfile = "3"
 tokio = { workspace = true }

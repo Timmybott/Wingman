@@ -2,7 +2,19 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PanelConfig, PowerSignal, Server, ServerEvent, ServerStats } from "./types";
+import type {
+  CommitInfo,
+  DeployStatus,
+  DeployStep,
+  FileEntry,
+  PanelConfig,
+  PowerSignal,
+  ProjectConfig,
+  RepoStatus,
+  Server,
+  ServerEvent,
+  ServerStats,
+} from "./types";
 
 export function getPanel(): Promise<PanelConfig | null> {
   return invoke<PanelConfig | null>("get_panel");
@@ -59,4 +71,73 @@ export function onServerEvent(
   handler: (event: ServerEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<ServerEvent>(`server-event-${identifier}`, (e) => handler(e.payload));
+}
+
+export function listProjects(): Promise<ProjectConfig[]> {
+  return invoke<ProjectConfig[]>("list_projects");
+}
+
+/** Create (empty id) or update a project. */
+export function saveProject(project: ProjectConfig): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>("save_project", { project });
+}
+
+export function deleteProject(projectId: string): Promise<void> {
+  return invoke<void>("delete_project", { projectId });
+}
+
+/** Start a deploy; progress arrives via onDeployEvent. */
+export function deployProject(projectId: string): Promise<void> {
+  return invoke<void>("deploy_project", { projectId });
+}
+
+export function onDeployEvent(
+  projectId: string,
+  handler: (step: DeployStep) => void,
+): Promise<UnlistenFn> {
+  return listen<DeployStep>(`deploy-event-${projectId}`, (e) => handler(e.payload));
+}
+
+/** Deploy an old commit; progress arrives on the same deploy-event channel. */
+export function rollbackProject(projectId: string, commitId: string): Promise<void> {
+  return invoke<void>("rollback_project", { projectId, commitId });
+}
+
+export function repoStatus(projectId: string): Promise<RepoStatus> {
+  return invoke<RepoStatus>("repo_status", { projectId });
+}
+
+export function commitProject(projectId: string, message: string): Promise<CommitInfo> {
+  return invoke<CommitInfo>("commit_project", { projectId, message });
+}
+
+export function projectHistory(projectId: string, limit?: number): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>("project_history", { projectId, limit });
+}
+
+export function deployStatus(projectId: string): Promise<DeployStatus> {
+  return invoke<DeployStatus>("deploy_status", { projectId });
+}
+
+export function listServerFiles(
+  identifier: string,
+  directory: string,
+): Promise<FileEntry[]> {
+  return invoke<FileEntry[]>("list_server_files", { identifier, directory });
+}
+
+export function deleteServerFiles(
+  identifier: string,
+  root: string,
+  files: string[],
+): Promise<void> {
+  return invoke<void>("delete_server_files", { identifier, root, files });
+}
+
+export function createServerFolder(
+  identifier: string,
+  root: string,
+  name: string,
+): Promise<void> {
+  return invoke<void>("create_server_folder", { identifier, root, name });
 }

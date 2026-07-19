@@ -1,8 +1,30 @@
+<script lang="ts">
+  import { appStatus } from "../appStatus.svelte";
+
+  const lastDeploy = $derived(appStatus.lastDeploy);
+  const gitStatus = $derived(appStatus.gitStatus);
+</script>
+
 <footer>
-  <!-- Placeholder: M4 puts the active project's git status here
-       (e.g. "3 commits since last deploy"). -->
-  <span class="muted">No project linked yet — git status will appear here</span>
-  <span class="muted">Notifications: —</span>
+  <span class="muted">
+    {#if gitStatus}
+      {gitStatus.projectName}:
+      {#if gitStatus.commitsSince === 0}
+        up to date with last deploy
+      {:else}
+        <span class="pending">
+          {gitStatus.commitsSince}
+          {gitStatus.commitsSince === 1 ? "commit" : "commits"} since last deploy
+        </span>
+      {/if}
+    {:else if lastDeploy}
+      Last deploy: {lastDeploy.projectName} · {lastDeploy.at.toLocaleTimeString()} ·
+      {lastDeploy.files} files
+    {:else}
+      No deploy yet this session
+    {/if}
+  </span>
+  <span class="muted">Notifications: on</span>
 </footer>
 
 <style>
@@ -14,5 +36,9 @@
     background: var(--surface);
     border-top: 1px solid var(--border);
     font-size: 12px;
+  }
+
+  .pending {
+    color: var(--warn);
   }
 </style>

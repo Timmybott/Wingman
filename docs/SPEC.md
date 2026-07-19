@@ -100,8 +100,9 @@ muss per API erneuert werden; Reconnect mit Backoff; ein Socket pro Server.
 1. Git-Commit des Projektordners (App legt beim Einrichten ein Repo an, falls keins existiert)
 2. Optional: Build-Befehl ausführen (Shell im Projektordner, Output live in der UI,
    Abbruch bei Exit-Code ≠ 0)
-3. Auto-Backup anstoßen UND auf Abschluss warten (Backup-API ist asynchron,
-   Fertig-Signal kommt als Websocket-Event).
+3. Auto-Backup anstoßen UND auf Abschluss warten (Backup-API ist asynchron;
+   die App pollt den Backup-Status, bis `completed_at` gesetzt ist — robuster
+   als das Websocket-Event, weil der Deploy keinen offenen Socket braucht).
    Eigene Backups heißen "wingman-pre-deploy-<zeitstempel>" und werden rotiert:
    ist das Backup-Limit des Servers erreicht, wird das älteste eigene gelöscht;
    bei Limit 0 wird der Schritt mit Hinweis übersprungen. Pro Projekt abschaltbar.
@@ -148,9 +149,9 @@ ist der Rettungsanker.
 
 - **M1 — Verbindung & Dashboard** ✅: Panel-URL + API-Key (Schlüsselbund), Serverliste, Kacheln mit Status, CPU/RAM
 - **M2 — Server fühlt sich echt an** ✅: Power-Buttons (Kill zweistufig), Websocket → Live-Konsole mit Befehlseingabe + CPU/RAM live, Token-Refresh/Reconnect mit Backoff
-- **M3 — Deploy-Kern:** Projektordner verknüpfen, Zip → Upload → Entpacken → Zip-Cleanup, `.deployignore`, Manifest-Löschung, Zielordner, Verhalten nach Deploy, Desktop-Benachrichtigungen
-- **M4 — Versionierung:** git2-Integration, Commit-UI, Historie, Rollback (git archive), Auto-Backup mit Rotation + Warten aufs Backup-Event, optionaler Build-Befehl
-- **M5 — Komfort & Release:** Datei-Browser, Auto-Updater (Signatur-Schlüsselpaar!), Release-Builds Windows (NSIS) + Linux (AppImage, .deb), Repo aktiv bewerben
+- **M3 — Deploy-Kern** ✅: Projektordner verknüpfen (Ordner-Picker), Zip → Upload → Entpacken → Zip-Cleanup, `.deployignore`, Manifest-Löschung, Zielordner, Verhalten nach Deploy, Desktop-Benachrichtigungen, Fortschritt auf der Kachel
+- **M4 — Versionierung** ✅: git2-Integration (Repo-Init beim Verknüpfen, Auto-Commit vor Deploy), Commit-UI + Historie mit „deployed"-Marker, Rollback (Tree-Archive in Tempdir, Working Tree unberührt), Auto-Backup mit Rotation (nur eigene `wingman-pre-deploy-*`), optionaler Build-Befehl mit Live-Output, Fußleiste „N Commits seit letztem Deploy"
+- **M5 — Komfort & Release** ✅: Datei-Browser (navigieren, Ordner anlegen, löschen), Auto-Updater (GitHub Releases + latest.json; Signatur-Schlüsselpaar wird vom Betreiber erzeugt, siehe docs/RELEASING.md), Release-Workflow für Windows (NSIS) + Linux (AppImage, .deb), Ein-Zeilen-Installer für Linux (install.sh)
 
 ---
 
@@ -165,7 +166,10 @@ ist der Rettungsanker.
 ## 9. Offene Punkte
 
 - [ ] Logo/Icon entwerfen (aktuell Platzhalter: violettes „W")
-- [ ] M3 starten (Deploy-Kern: Projekt verknüpfen, Zip → Upload → Entpacken, .deployignore)
+- [ ] Erstes Release veröffentlichen: Updater-Schlüsselpaar erzeugen, Secrets setzen, Tag pushen (docs/RELEASING.md), dann Launch in den Community-Kanälen (Abschnitt 8)
+- [x] M5 (Datei-Browser, Auto-Updater, Release-Pipeline, Installer) — 19.07.2026
+- [x] M4 (Versionierung) — 19.07.2026
+- [x] M3 (Deploy-Kern) — 19.07.2026
 - [x] M2 (Websocket, Power-Aktionen, Konsole) — 19.07.2026
 - [x] Name final festlegen (Wingman, Verfügbarkeit geprüft 07/2026)
 - [x] Frontend-Framework wählen (Svelte 5)

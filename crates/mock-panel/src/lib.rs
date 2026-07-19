@@ -13,7 +13,7 @@
 //! Run standalone with `cargo run -p mock-panel`.
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -51,12 +51,50 @@ struct AppState {
     servers: Arc<Mutex<HashMap<String, ServerRuntime>>>,
     options: Arc<MockPanelOptions>,
     addr: SocketAddr,
+    backup_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
 struct ServerRuntime {
     state: &'static str,
     /// Serialized Wings frames, fanned out to every connected websocket.
     events: broadcast::Sender<String>,
+    /// Virtual server filesystem: normalized relative path → contents.
+    files: HashMap<String, Vec<u8>>,
+    /// Explicitly created (possibly empty) directories.
+    dirs: std::collections::BTreeSet<String>,
+    backups: Vec<MockBackup>,
+}
+
+#[derive(Clone)]
+struct MockBackup {
+    uuid: String,
+    name: String,
+    created_at: String,
+    completed: bool,
+}
+
+impl MockBackup {
+    fn to_json(&self) -> Value {
+        json!({
+            "uuid": self.uuid,
+            "name": self.name,
+            "is_successful": self.completed,
+            "is_locked": false,
+            "bytes": if self.completed { 1_048_576 } else { 0 },
+            "created_at": self.created_at,
+            "completed_at": if self.completed { Value::String(self.created_at.clone()) } else { Value::Null }
+        })
+    }
+}
+
+/// Backup slots per sample server (mirrors `feature_limits.backups`).
+fn backup_limit(id: &str) -> usize {
+    match id {
+        "a1b2c3d4" => 3,
+        "b2c3d4e5" => 1,
+        "c3d4e5f6" => 2,
+        _ => 0,
+    }
 }
 
 impl AppState {
@@ -68,12 +106,22 @@ impl AppState {
             ("c3d4e5f6", "offline"),
         ] {
             let (events, _) = broadcast::channel(64);
-            servers.insert(id.to_string(), ServerRuntime { state, events });
+            servers.insert(
+                id.to_string(),
+                ServerRuntime {
+                    state,
+                    events,
+                    files: HashMap::new(),
+                    dirs: std::collections::BTreeSet::new(),
+                    backups: Vec::new(),
+                },
+            );
         }
         Self {
             servers: Arc::new(Mutex::new(servers)),
             options: Arc::new(options),
             addr,
+            backup_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -103,12 +151,63 @@ impl AppState {
             let _ = rt.events.send(stats_frame(new_state));
         }
     }
+
+    fn put_file(&self, id: &str, path: String, bytes: Vec<u8>) {
+        if let Some(rt) = self.servers.lock().unwrap().get_mut(id) {
+            rt.files.insert(path, bytes);
+        }
+    }
+
+    fn get_file(&self, id: &str, path: &str) -> Option<Vec<u8>> {
+        self.servers
+            .lock()
+            .unwrap()
+            .get(id)
+            .and_then(|rt| rt.files.get(path).cloned())
+    }
+
+    /// Remove a path — an exact file match plus everything under it
+    /// (directory semantics, like the panel's delete endpoint).
+    fn remove_path(&self, id: &str, path: &str) {
+        if let Some(rt) = self.servers.lock().unwrap().get_mut(id) {
+            let prefix = format!("{path}/");
+            rt.files
+                .retain(|key, _| key != path && !key.starts_with(&prefix));
+            rt.dirs
+                .retain(|key| key != path && !key.starts_with(&prefix));
+        }
+    }
+
+    fn list_files(&self, id: &str) -> Vec<String> {
+        let mut files: Vec<String> = self
+            .servers
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|rt| rt.files.keys().cloned().collect())
+            .unwrap_or_default();
+        files.sort();
+        files
+    }
+}
+
+/// Join a panel-style root (`/`, `/app`) with a relative name into the
+/// normalized storage key used by the virtual filesystem (no leading slash).
+fn join_remote(root: &str, name: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for part in root.split('/').chain(name.split('/')) {
+        if !part.is_empty() && part != "." {
+            segments.push(part);
+        }
+    }
+    segments.join("/")
 }
 
 /// A running mock panel. The server task is aborted on drop.
 pub struct MockPanel {
     addr: SocketAddr,
     handle: JoinHandle<()>,
+    state: AppState,
 }
 
 impl MockPanel {
@@ -125,12 +224,17 @@ impl MockPanel {
         let listener = TcpListener::bind(addr).await.expect("bind mock panel");
         let addr = listener.local_addr().expect("local addr");
         let state = AppState::new(addr, options);
+        let router_state = state.clone();
         let handle = tokio::spawn(async move {
-            axum::serve(listener, router(state))
+            axum::serve(listener, router(router_state))
                 .await
                 .expect("serve mock panel");
         });
-        Self { addr, handle }
+        Self {
+            addr,
+            handle,
+            state,
+        }
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -139,6 +243,16 @@ impl MockPanel {
 
     pub fn base_url(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// Test inspection: all files on the server's virtual filesystem, sorted.
+    pub fn server_files(&self, id: &str) -> Vec<String> {
+        self.state.list_files(id)
+    }
+
+    /// Test inspection: contents of one file on the virtual filesystem.
+    pub fn file_contents(&self, id: &str, path: &str) -> Option<Vec<u8>> {
+        self.state.get_file(id, path)
     }
 }
 
@@ -154,7 +268,28 @@ fn router(state: AppState) -> Router {
         .route("/api/client/servers/{id}/resources", get(server_resources))
         .route("/api/client/servers/{id}/power", post(set_power))
         .route("/api/client/servers/{id}/websocket", get(websocket_details))
+        .route("/api/client/servers/{id}", get(server_details))
+        .route(
+            "/api/client/servers/{id}/backups",
+            get(list_backups).post(create_backup),
+        )
+        .route(
+            "/api/client/servers/{id}/backups/{uuid}",
+            get(backup_details).delete(delete_backup),
+        )
+        .route("/api/client/servers/{id}/files/list", get(list_files))
+        .route("/api/client/servers/{id}/files/upload", get(upload_url))
+        .route(
+            "/api/client/servers/{id}/files/decompress",
+            post(decompress_file),
+        )
+        .route("/api/client/servers/{id}/files/delete", post(delete_files))
+        .route(
+            "/api/client/servers/{id}/files/create-folder",
+            post(create_folder),
+        )
         .route("/node/ws/{id}", get(node_ws))
+        .route("/node/upload/{id}", post(node_upload))
         .with_state(state)
 }
 
@@ -329,6 +464,386 @@ async fn websocket_details(
         }
     }))
     .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Server details & backups
+// ---------------------------------------------------------------------------
+
+async fn server_details(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let Some(attributes) = sample_servers()
+        .into_iter()
+        .find(|s| s["identifier"] == id.as_str())
+    else {
+        return not_found();
+    };
+    Json(json!({ "object": "server", "attributes": attributes })).into_response()
+}
+
+async fn list_backups(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get(&id) else {
+        return not_found();
+    };
+    let data: Vec<Value> = rt
+        .backups
+        .iter()
+        .map(|b| json!({ "object": "backup", "attributes": b.to_json() }))
+        .collect();
+    let total = data.len();
+    Json(json!({
+        "object": "list",
+        "data": data,
+        "meta": {
+            "backup_count": total,
+            "pagination": {
+                "total": total, "count": total, "per_page": 50,
+                "current_page": 1, "total_pages": 1, "links": {}
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// Create a backup; completes asynchronously after a short delay, like a
+/// real node. Rejects when the server's backup limit is reached.
+async fn create_backup(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let seq = app
+        .backup_seq
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let backup = {
+        let mut servers = app.servers.lock().unwrap();
+        let Some(rt) = servers.get_mut(&id) else {
+            return not_found();
+        };
+        if rt.backups.len() >= backup_limit(&id) {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "TooManyBackupsException",
+                "Cannot create a new backup, this server has reached its limit.",
+            );
+        }
+        let backup = MockBackup {
+            uuid: format!("backup-{seq}"),
+            name: body
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .unwrap_or("unnamed")
+                .to_string(),
+            created_at: format!("2026-07-19T00:{:02}:{:02}Z", (seq / 60) % 60, seq % 60),
+            completed: false,
+        };
+        rt.backups.push(backup.clone());
+        backup
+    };
+
+    // Complete the backup shortly after, like a real node.
+    let complete_app = app.clone();
+    let complete_id = id.clone();
+    let complete_uuid = backup.uuid.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut servers = complete_app.servers.lock().unwrap();
+        if let Some(rt) = servers.get_mut(&complete_id) {
+            if let Some(b) = rt.backups.iter_mut().find(|b| b.uuid == complete_uuid) {
+                b.completed = true;
+            }
+        }
+    });
+
+    Json(json!({ "object": "backup", "attributes": backup.to_json() })).into_response()
+}
+
+async fn backup_details(
+    State(app): State<AppState>,
+    Path((id, uuid)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let servers = app.servers.lock().unwrap();
+    let Some(backup) = servers
+        .get(&id)
+        .and_then(|rt| rt.backups.iter().find(|b| b.uuid == uuid))
+    else {
+        return not_found();
+    };
+    Json(json!({ "object": "backup", "attributes": backup.to_json() })).into_response()
+}
+
+async fn delete_backup(
+    State(app): State<AppState>,
+    Path((id, uuid)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let mut servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get_mut(&id) else {
+        return not_found();
+    };
+    let before = rt.backups.len();
+    rt.backups.retain(|b| b.uuid != uuid);
+    if rt.backups.len() == before {
+        return not_found();
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+// ---------------------------------------------------------------------------
+// File API (virtual filesystem)
+// ---------------------------------------------------------------------------
+
+async fn upload_url(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    Json(json!({
+        "object": "signed_url",
+        "attributes": {
+            "url": format!("http://{}/node/upload/{id}?token=mock", app.addr)
+        }
+    }))
+    .into_response()
+}
+
+/// The node-side upload target the signed URL points at. Like Wings, it
+/// takes multipart `files` fields and a `directory` query parameter; the
+/// signed token replaces Bearer auth.
+async fn node_upload(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    mut multipart: Multipart,
+) -> Response {
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let directory = query
+        .get("directory")
+        .cloned()
+        .unwrap_or_else(|| "/".into());
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let Some(file_name) = field.file_name().map(str::to_string) else {
+            continue;
+        };
+        match field.bytes().await {
+            Ok(bytes) => app.put_file(&id, join_remote(&directory, &file_name), bytes.to_vec()),
+            Err(_) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "DaemonException",
+                    "Failed to read the uploaded file.",
+                )
+            }
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn decompress_file(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let file = body.get("file").and_then(Value::as_str).unwrap_or("");
+    let archive_path = join_remote(root, file);
+    let Some(bytes) = app.get_file(&id, &archive_path) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "DaemonException",
+            "The requested archive was not found.",
+        );
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "DaemonException",
+            "The archive could not be read.",
+        );
+    };
+    for index in 0..archive.len() {
+        let Ok(mut entry) = archive.by_index(index) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let mut contents = Vec::new();
+        if std::io::Read::read_to_end(&mut entry, &mut contents).is_ok() {
+            app.put_file(&id, join_remote(root, &name), contents);
+        }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn delete_files(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let files = body
+        .get("files")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for file in files {
+        app.remove_path(&id, &join_remote(root, &file));
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn create_folder(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let name = body.get("name").and_then(Value::as_str).unwrap_or("");
+    let key = join_remote(root, name);
+    let mut servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get_mut(&id) else {
+        return not_found();
+    };
+    if !key.is_empty() {
+        rt.dirs.insert(key);
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Directory listing: files stored directly in the directory plus
+/// sub-directories, derived from deeper file paths and explicit folders.
+async fn list_files(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let directory = query
+        .get("directory")
+        .cloned()
+        .unwrap_or_else(|| "/".into());
+    let prefix = {
+        let key = join_remote(&directory, "");
+        if key.is_empty() {
+            String::new()
+        } else {
+            format!("{key}/")
+        }
+    };
+
+    let servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get(&id) else {
+        return not_found();
+    };
+    let mut dirs = std::collections::BTreeSet::new();
+    let mut files: Vec<(String, usize)> = Vec::new();
+    for (key, contents) in &rt.files {
+        let Some(rest) = key.strip_prefix(&prefix) else {
+            continue;
+        };
+        match rest.split_once('/') {
+            Some((dir, _)) => {
+                dirs.insert(dir.to_string());
+            }
+            None => files.push((rest.to_string(), contents.len())),
+        }
+    }
+    for key in &rt.dirs {
+        if let Some(rest) = key.strip_prefix(&prefix) {
+            if !rest.is_empty() {
+                dirs.insert(rest.split('/').next().unwrap_or(rest).to_string());
+            }
+        }
+    }
+    files.sort();
+
+    let entry = |name: &str, size: usize, is_file: bool| {
+        json!({
+            "object": "file_object",
+            "attributes": {
+                "name": name,
+                "mode": if is_file { "-rw-r--r--" } else { "drwxr-xr-x" },
+                "size": size,
+                "is_file": is_file,
+                "is_symlink": false,
+                "mimetype": if is_file { "text/plain" } else { "inode/directory" },
+                "created_at": "2026-07-19T00:00:00Z",
+                "modified_at": "2026-07-19T00:00:00Z"
+            }
+        })
+    };
+    let data: Vec<Value> = dirs
+        .iter()
+        .map(|d| entry(d, 0, false))
+        .chain(files.iter().map(|(name, size)| entry(name, *size, true)))
+        .collect();
+    Json(json!({ "object": "list", "data": data })).into_response()
 }
 
 // ---------------------------------------------------------------------------

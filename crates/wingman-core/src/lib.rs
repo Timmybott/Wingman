@@ -6,11 +6,15 @@
 
 pub mod api;
 pub mod config;
+pub mod deploy;
 pub mod error;
+pub mod git;
 pub mod models;
 pub mod ws;
 
 pub use api::{normalize_base_url, PanelClient};
-pub use config::{ConfigStore, PanelConfig, PostDeployAction, ProjectConfig};
+pub use config::{ConfigStore, DeployRecord, PanelConfig, PostDeployAction, ProjectConfig};
+pub use deploy::{start_deploy, start_rollback, DeployHandle, DeployStep};
 pub use error::Error;
+pub use git::{ChangedFile, CommitInfo, RepoStatus};
 pub use ws::{Outgoing, ServerEvent, ServerSocket};

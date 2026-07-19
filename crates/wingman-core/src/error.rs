@@ -26,6 +26,15 @@ pub enum Error {
     #[error("websocket error: {0}")]
     Websocket(String),
 
+    #[error("deploy failed: {0}")]
+    Deploy(String),
+
+    #[error("git error: {0}")]
+    Git(String),
+
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("config error: {0}")]
     Config(String),
 }
