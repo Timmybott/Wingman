@@ -1,51 +1,101 @@
 <script lang="ts">
   import { cpuPercent, formatBytes, formatMib, memoryPercent } from "../format";
-  import type { PowerState, Server, ServerStats } from "../types";
+  import type { LiveState, PowerSignal, PowerState, Server } from "../types";
 
-  let { server, stats }: { server: Server; stats?: ServerStats } = $props();
+  let {
+    server,
+    live,
+    onPower,
+    onOpenConsole,
+  }: {
+    server: Server;
+    live: LiveState;
+    onPower: (signal: PowerSignal) => Promise<void>;
+    onOpenConsole: () => void;
+  } = $props();
 
-  const powerState = $derived<PowerState | "unknown">(
-    stats?.current_state ?? "unknown",
-  );
+  let busy = $state(false);
+  let killArmed = $state(false);
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const powerState = $derived<PowerState | "unknown">(live.state ?? "unknown");
+  const stats = $derived(live.stats);
 
   const statusLabel = $derived(
     server.is_suspended
       ? "Suspended"
       : server.is_installing
         ? "Installing"
-        : { running: "Online", starting: "Starting", stopping: "Stopping", offline: "Offline", unknown: "…" }[
-            powerState
-          ],
+        : {
+            running: "Online",
+            starting: "Starting",
+            stopping: "Stopping",
+            offline: "Offline",
+            unknown: "…",
+          }[powerState],
   );
 
   const dotClass = $derived(
     server.is_suspended
       ? "offline"
-      : { running: "online", starting: "busy", stopping: "busy", offline: "offline", unknown: "unknown" }[
-          powerState
-        ],
+      : {
+          running: "online",
+          starting: "busy",
+          stopping: "busy",
+          offline: "offline",
+          unknown: "unknown",
+        }[powerState],
   );
 
-  const cpu = $derived(stats ? cpuPercent(stats.resources.cpu_absolute, server.limits.cpu) : null);
+  const cpu = $derived(stats ? cpuPercent(stats.cpu_absolute, server.limits.cpu) : null);
   const memory = $derived(
-    stats ? memoryPercent(stats.resources.memory_bytes, server.limits.memory) : null,
+    stats ? memoryPercent(stats.memory_bytes, server.limits.memory) : null,
   );
 
   const cpuLabel = $derived(
     stats
       ? server.limits.cpu > 0
-        ? `${stats.resources.cpu_absolute.toFixed(1)} / ${server.limits.cpu}%`
-        : `${stats.resources.cpu_absolute.toFixed(1)}%`
+        ? `${stats.cpu_absolute.toFixed(1)} / ${server.limits.cpu}%`
+        : `${stats.cpu_absolute.toFixed(1)}%`
       : "–",
   );
 
   const memoryLabel = $derived(
     stats
       ? server.limits.memory > 0
-        ? `${formatBytes(stats.resources.memory_bytes)} / ${formatMib(server.limits.memory)}`
-        : formatBytes(stats.resources.memory_bytes)
+        ? `${formatBytes(stats.memory_bytes)} / ${formatMib(server.limits.memory)}`
+        : formatBytes(stats.memory_bytes)
       : "–",
   );
+
+  const canStart = $derived(powerState === "offline");
+  const canStop = $derived(powerState === "running");
+  const showKill = $derived(powerState !== "offline" && powerState !== "unknown");
+
+  async function power(signal: PowerSignal) {
+    busy = true;
+    try {
+      await onPower(signal);
+    } finally {
+      busy = false;
+      disarmKill();
+    }
+  }
+
+  // Kill is destructive (no graceful shutdown) — require a second click.
+  function killClick() {
+    if (!killArmed) {
+      killArmed = true;
+      killTimer = setTimeout(() => (killArmed = false), 3000);
+      return;
+    }
+    void power("kill");
+  }
+
+  function disarmKill() {
+    killArmed = false;
+    if (killTimer) clearTimeout(killTimer);
+  }
 </script>
 
 <article class="card">
@@ -54,7 +104,10 @@
       <h3>{server.name}</h3>
       <span class="muted node">{server.node}</span>
     </div>
-    <span class="status"><span class="dot {dotClass}"></span> {statusLabel}</span>
+    <span class="status" title={live.connected ? "Live connection" : "No live connection"}>
+      <span class="dot {dotClass}"></span>
+      {statusLabel}
+    </span>
   </div>
 
   <div class="meters">
@@ -75,15 +128,33 @@
   </div>
 
   <div class="card-actions">
-    <!-- Deploy is the heart of the app (M3); power control lands in M2.
-         Shown disabled so the dashboard already has its final shape. -->
     <button class="primary deploy" disabled title="Deploy arrives in milestone M3">
       Deploy
     </button>
-    <button disabled title="Power actions arrive in milestone M2">⏻</button>
-    <button class="ghost" disabled title="Console arrives in milestone M2">Console</button>
-    <button class="ghost" disabled title="History arrives in milestone M4">History</button>
-    <button class="ghost" disabled title="Files arrive in milestone M5">Files</button>
+    {#if canStart}
+      <button onclick={() => power("start")} disabled={busy} title="Start server">▶</button>
+    {:else}
+      <button
+        onclick={() => power("stop")}
+        disabled={busy || !canStop}
+        title="Stop server"
+      >
+        ⏹
+      </button>
+    {/if}
+    <button
+      onclick={() => power("restart")}
+      disabled={busy || !canStop}
+      title="Restart server"
+    >
+      ⟳
+    </button>
+    {#if showKill}
+      <button class="kill" class:armed={killArmed} onclick={killClick} disabled={busy}>
+        {killArmed ? "Sure?" : "Kill"}
+      </button>
+    {/if}
+    <button class="ghost" onclick={onOpenConsole}>Console</button>
   </div>
 </article>
 
@@ -151,10 +222,22 @@
   .card-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
   }
 
   .deploy {
     flex: 1;
+    min-width: 90px;
+  }
+
+  .kill {
+    color: var(--danger);
+  }
+
+  .kill.armed {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
   }
 </style>

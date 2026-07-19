@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cpuPercent, formatBytes, formatMib, memoryPercent } from "./format";
+import { cpuPercent, formatBytes, formatMib, memoryPercent, stripAnsi } from "./format";
 
 describe("formatBytes", () => {
   it("formats zero and small values without decimals", () => {
@@ -50,5 +50,29 @@ describe("memoryPercent", () => {
 
   it("returns null for unlimited limits", () => {
     expect(memoryPercent(123, 0)).toBeNull();
+  });
+});
+
+describe("stripAnsi", () => {
+  it("removes color codes", () => {
+    expect(stripAnsi("\x1b[33m[mock]\x1b[0m Container booted")).toBe(
+      "[mock] Container booted",
+    );
+  });
+
+  it("removes cursor and OSC title sequences", () => {
+    expect(stripAnsi("\x1b[2J\x1b[H\x1b]0;My Server\x07Done (2.1s)!")).toBe("Done (2.1s)!");
+  });
+
+  it("removes trailing carriage returns", () => {
+    expect(stripAnsi("Loading libraries, please wait...\r")).toBe(
+      "Loading libraries, please wait...",
+    );
+  });
+
+  it("leaves plain lines untouched", () => {
+    expect(stripAnsi("[12:00:01] [Server thread/INFO]: Done")).toBe(
+      "[12:00:01] [Server thread/INFO]: Done",
+    );
   });
 });

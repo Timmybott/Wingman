@@ -91,6 +91,62 @@ pub enum PowerState {
     Offline,
 }
 
+impl PowerState {
+    /// Parse the state strings Wings uses in websocket `status` events.
+    pub fn parse_wings(value: &str) -> Option<Self> {
+        match value {
+            "running" => Some(Self::Running),
+            "starting" => Some(Self::Starting),
+            "stopping" => Some(Self::Stopping),
+            "offline" => Some(Self::Offline),
+            _ => None,
+        }
+    }
+}
+
+/// Power signal for `POST /api/client/servers/{id}/power`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerSignal {
+    Start,
+    Stop,
+    Restart,
+    Kill,
+}
+
+impl PowerSignal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+            Self::Kill => "kill",
+        }
+    }
+}
+
+impl std::str::FromStr for PowerSignal {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "start" => Ok(Self::Start),
+            "stop" => Ok(Self::Stop),
+            "restart" => Ok(Self::Restart),
+            "kill" => Ok(Self::Kill),
+            other => Err(format!("unknown power signal `{other}`")),
+        }
+    }
+}
+
+/// Response of `GET /api/client/servers/{id}/websocket`: credentials for the
+/// console/stats websocket on the Wings node.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebsocketDetails {
+    pub token: String,
+    pub socket: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceUsage {
     pub memory_bytes: u64,

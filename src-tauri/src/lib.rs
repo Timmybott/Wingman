@@ -4,11 +4,15 @@
 mod commands;
 mod secrets;
 
+use commands::SocketHandle;
+use std::collections::HashMap;
 use tauri::Manager;
 use wingman_core::ConfigStore;
 
 pub struct AppState {
     store: ConfigStore,
+    /// One live websocket per subscribed server, keyed by identifier.
+    sockets: tokio::sync::Mutex<HashMap<String, SocketHandle>>,
 }
 
 pub fn run() {
@@ -18,6 +22,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(AppState {
                 store: ConfigStore::new(dir),
+                sockets: tokio::sync::Mutex::new(HashMap::new()),
             });
             Ok(())
         })
@@ -28,6 +33,10 @@ pub fn run() {
             commands::remove_panel,
             commands::list_servers,
             commands::server_resources,
+            commands::set_power,
+            commands::subscribe_server,
+            commands::unsubscribe_server,
+            commands::send_console_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

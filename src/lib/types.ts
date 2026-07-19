@@ -53,3 +53,32 @@ export interface ServerStats {
   is_suspended: boolean;
   resources: ResourceUsage;
 }
+
+export type PowerSignal = "start" | "stop" | "restart" | "kill";
+
+/** Live snapshot pushed by Wings over the websocket. */
+export interface WsStats {
+  memory_bytes: number;
+  memory_limit_bytes: number;
+  cpu_absolute: number;
+  disk_bytes: number;
+  /** milliseconds */
+  uptime: number;
+  state: PowerState;
+  network: { rx_bytes: number; tx_bytes: number };
+}
+
+/** Aggregated live view of one server, fed by its websocket events. */
+export interface LiveState {
+  state: PowerState | null;
+  stats: WsStats | null;
+  connected: boolean;
+}
+
+/** Mirrors wingman_core::ws::ServerEvent (serde tag/content). */
+export type ServerEvent =
+  | { type: "connected" }
+  | { type: "status"; data: PowerState }
+  | { type: "stats"; data: WsStats }
+  | { type: "console"; data: string }
+  | { type: "disconnected"; data: { reason: string } };

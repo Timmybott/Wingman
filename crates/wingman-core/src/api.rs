@@ -1,7 +1,7 @@
 //! HTTP client for the Pterodactyl client API (`/api/client`).
 
 use crate::error::Error;
-use crate::models::{ApiList, ApiObject, Server, ServerStats};
+use crate::models::{ApiList, ApiObject, PowerSignal, Server, ServerStats, WebsocketDetails};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -40,6 +40,7 @@ pub fn normalize_base_url(input: &str) -> Result<Url, Error> {
     Ok(url)
 }
 
+#[derive(Clone)]
 pub struct PanelClient {
     base: Url,
     http: reqwest::Client,
@@ -69,6 +70,12 @@ impl PanelClient {
         &self.base
     }
 
+    /// Origin of the panel (`scheme://host[:port]`). Wings validates the
+    /// `Origin` header on websocket connections against the panel URL.
+    pub fn origin(&self) -> String {
+        self.base.origin().ascii_serialization()
+    }
+
     /// All servers the API key has access to, following pagination.
     pub async fn list_servers(&self) -> Result<Vec<Server>, Error> {
         let mut page: u64 = 1;
@@ -95,6 +102,37 @@ impl PanelClient {
         Ok(stats.attributes)
     }
 
+    /// Send a power signal (start/stop/restart/kill). The panel replies 204.
+    pub async fn set_power(&self, identifier: &str, signal: PowerSignal) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/power"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self
+            .http
+            .post(url)
+            .json(&serde_json::json!({ "signal": signal.as_str() }))
+            .send()
+            .await?;
+        ensure_success(response).await?;
+        Ok(())
+    }
+
+    /// Credentials for the console/stats websocket on the Wings node.
+    /// Tokens are short-lived (~10–15 min); fetch a fresh one to re-auth.
+    pub async fn websocket_details(&self, identifier: &str) -> Result<WebsocketDetails, Error> {
+        #[derive(serde::Deserialize)]
+        struct Envelope {
+            data: WebsocketDetails,
+        }
+        validate_identifier(identifier)?;
+        let envelope: Envelope = self
+            .get_json(&format!("api/client/servers/{identifier}/websocket"), &[])
+            .await?;
+        Ok(envelope.data)
+    }
+
     async fn get_json<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -105,21 +143,26 @@ impl PanelClient {
             .join(path)
             .map_err(|e| Error::InvalidUrl(e.to_string()))?;
         let response = self.http.get(url).query(query).send().await?;
-        let status = response.status();
-        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            return Err(Error::Unauthorized {
-                status: status.as_u16(),
-            });
-        }
-        if !status.is_success() {
-            return Err(Error::Api {
-                status: status.as_u16(),
-                detail: extract_api_error(response).await,
-            });
-        }
+        let response = ensure_success(response).await?;
         let bytes = response.bytes().await?;
         serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))
     }
+}
+
+async fn ensure_success(response: reqwest::Response) -> Result<reqwest::Response, Error> {
+    let status = response.status();
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(Error::Unauthorized {
+            status: status.as_u16(),
+        });
+    }
+    if !status.is_success() {
+        return Err(Error::Api {
+            status: status.as_u16(),
+            detail: extract_api_error(response).await,
+        });
+    }
+    Ok(response)
 }
 
 /// Identifiers are used to build URL paths — restrict them to the panel's
