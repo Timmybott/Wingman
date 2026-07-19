@@ -389,7 +389,6 @@ async fn ensure_backup(
 ) -> Result<(), Error> {
     let server = client.server_details(identifier).await?;
     let limit = server.feature_limits.backups.unwrap_or(0);
-    
     if limit <= 0 {
         let _ = tx
             .send(DeployStep::BackupSkipped {
