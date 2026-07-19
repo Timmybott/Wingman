@@ -18,6 +18,7 @@
     onOpenConsole,
     onDeploy,
     onConfigureProject,
+    onOpenHistory,
   }: {
     server: Server;
     live: LiveState;
@@ -27,6 +28,7 @@
     onOpenConsole: () => void;
     onDeploy: () => void;
     onConfigureProject: () => void;
+    onOpenHistory: () => void;
   } = $props();
 
   let busy = $state(false);
@@ -95,6 +97,14 @@
   const deployLabel = $derived.by(() => {
     if (!deploy) return null;
     switch (deploy.step) {
+      case "committing":
+        return "Committing…";
+      case "checking_out":
+        return "Checking out…";
+      case "building":
+        return "Building…";
+      case "backing_up":
+        return "Backing up…";
       case "scanning":
         return "Scanning…";
       case "packing":
@@ -239,6 +249,14 @@
       </button>
     {/if}
     <button class="ghost" onclick={onOpenConsole}>Console</button>
+    <button
+      class="ghost"
+      onclick={onOpenHistory}
+      disabled={!project}
+      title={project ? "Commit history & rollback" : "Link a project first"}
+    >
+      History
+    </button>
   </div>
 </article>
 

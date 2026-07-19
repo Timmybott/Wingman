@@ -147,6 +147,20 @@ pub struct WebsocketDetails {
     pub socket: String,
 }
 
+/// A server backup as returned by the backups endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Backup {
+    pub uuid: String,
+    pub name: String,
+    #[serde(default)]
+    pub is_successful: bool,
+    #[serde(default)]
+    pub created_at: String,
+    /// `None` while the backup is still being taken.
+    #[serde(default)]
+    pub completed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceUsage {
     pub memory_bytes: u64,

@@ -46,6 +46,11 @@ pub fn run() {
             commands::save_project,
             commands::delete_project,
             commands::deploy_project,
+            commands::rollback_project,
+            commands::repo_status,
+            commands::commit_project,
+            commands::project_history,
+            commands::deploy_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

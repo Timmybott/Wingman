@@ -73,6 +73,12 @@ export interface ProjectConfig {
 
 /** Mirrors wingman_core::deploy::DeployStep (serde tag "step"). */
 export type DeployStep =
+  | { step: "committing" }
+  | { step: "checking_out" }
+  | { step: "building" }
+  | { step: "build_output"; line: string }
+  | { step: "backing_up" }
+  | { step: "backup_skipped"; reason: string }
   | { step: "scanning" }
   | { step: "packing"; files: number }
   | { step: "uploading"; percent: number }
@@ -81,6 +87,32 @@ export type DeployStep =
   | { step: "restarting" }
   | { step: "done"; files: number; deleted: number }
   | { step: "failed"; message: string };
+
+/** Mirrors wingman_core::git::CommitInfo. */
+export interface CommitInfo {
+  id: string;
+  short_id: string;
+  summary: string;
+  author: string;
+  /** unix seconds */
+  timestamp: number;
+}
+
+export interface ChangedFile {
+  path: string;
+  kind: "new" | "modified" | "deleted" | "renamed" | "other";
+}
+
+export interface RepoStatus {
+  dirty: boolean;
+  changed: ChangedFile[];
+  head: CommitInfo | null;
+}
+
+export interface DeployStatus {
+  last_deploy: { timestamp: number; commit: string | null } | null;
+  commits_since: number | null;
+}
 
 /** Live snapshot pushed by Wings over the websocket. */
 export interface WsStats {

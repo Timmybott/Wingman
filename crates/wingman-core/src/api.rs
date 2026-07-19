@@ -1,7 +1,9 @@
 //! HTTP client for the Pterodactyl client API (`/api/client`).
 
 use crate::error::Error;
-use crate::models::{ApiList, ApiObject, PowerSignal, Server, ServerStats, WebsocketDetails};
+use crate::models::{
+    ApiList, ApiObject, Backup, PowerSignal, Server, ServerStats, WebsocketDetails,
+};
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::StatusCode;
@@ -92,6 +94,69 @@ impl PanelClient {
             }
         }
         Ok(servers)
+    }
+
+    /// Full details of one server (limits, feature limits, …).
+    pub async fn server_details(&self, identifier: &str) -> Result<Server, Error> {
+        validate_identifier(identifier)?;
+        let server: ApiObject<Server> = self
+            .get_json(&format!("api/client/servers/{identifier}"), &[])
+            .await?;
+        Ok(server.attributes)
+    }
+
+    /// All backups of a server.
+    pub async fn list_backups(&self, identifier: &str) -> Result<Vec<Backup>, Error> {
+        validate_identifier(identifier)?;
+        let list: ApiList<Backup> = self
+            .get_json(&format!("api/client/servers/{identifier}/backups"), &[])
+            .await?;
+        Ok(list.data.into_iter().map(|o| o.attributes).collect())
+    }
+
+    /// Start a new backup. Creation is asynchronous — poll
+    /// [`Self::backup_details`] until `completed_at` is set.
+    pub async fn create_backup(&self, identifier: &str, name: &str) -> Result<Backup, Error> {
+        validate_identifier(identifier)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/backups"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self
+            .http
+            .post(url)
+            .json(&serde_json::json!({ "name": name }))
+            .send()
+            .await?;
+        let response = ensure_success(response).await?;
+        let bytes = response.bytes().await?;
+        let backup: ApiObject<Backup> =
+            serde_json::from_slice(&bytes).map_err(|e| Error::Decode(e.to_string()))?;
+        Ok(backup.attributes)
+    }
+
+    pub async fn backup_details(&self, identifier: &str, uuid: &str) -> Result<Backup, Error> {
+        validate_identifier(identifier)?;
+        validate_identifier(uuid)?;
+        let backup: ApiObject<Backup> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/backups/{uuid}"),
+                &[],
+            )
+            .await?;
+        Ok(backup.attributes)
+    }
+
+    pub async fn delete_backup(&self, identifier: &str, uuid: &str) -> Result<(), Error> {
+        validate_identifier(identifier)?;
+        validate_identifier(uuid)?;
+        let url = self
+            .base
+            .join(&format!("api/client/servers/{identifier}/backups/{uuid}"))
+            .map_err(|e| Error::InvalidUrl(e.to_string()))?;
+        let response = self.http.delete(url).send().await?;
+        ensure_success(response).await?;
+        Ok(())
     }
 
     /// Power state and live resource usage of one server.

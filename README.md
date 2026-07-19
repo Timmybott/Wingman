@@ -2,7 +2,7 @@
 
 **A desktop client for [Pterodactyl](https://pterodactyl.io) with a one-click deploy workflow — think GitHub Desktop, but for your game servers.**
 
-> ⚠️ Wingman is in early development. Milestones M1 (panel connection + dashboard), M2 (power actions, live console, live stats) and M3 (one-click deploys) are implemented; git-backed versioning and rollback are on the way. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
+> ⚠️ Wingman is in early development. Milestones M1–M4 (panel connection, live servers, one-click deploys, git-backed versioning with rollback) are implemented; the file browser, auto-updater and first releases (M5) are on the way. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
 
 ## What it does (and will do)
 
@@ -11,7 +11,7 @@ Pick a local project folder, keep versions as git commits, and push them to your
 - ✅ **M1 — Connection & dashboard**: connect a panel with a client API key (stored in the OS keychain), see your servers as tiles with live status, CPU and RAM
 - ✅ **M2 — Live servers**: power actions (start/stop/restart/kill), streamed console with command input, live stats over the Wings websocket (token refresh + auto-reconnect included)
 - ✅ **M3 — Deploy**: link a project folder and deploy it with one click — zip → upload → extract via the panel's file API, `.deployignore` (gitignore syntax), stale files deleted via manifest diff, configurable target folder, post-deploy restart or desktop notification, live progress on the server tile
-- 🔜 **M4 — Versioning**: git-backed history, one-click rollback, automatic pre-deploy backups, optional build command
+- ✅ **M4 — Versioning**: every project is a real git repository (auto-initialized, auto-committed on deploy), commit UI and history with one-click rollback that never touches your working tree, automatic pre-deploy backups with rotation (Wingman never deletes backups it didn't create), optional build command with streamed output
 - 🔜 **M5 — Comfort & release**: server file browser, auto-updater, first Windows + Linux releases
 
 ## Development

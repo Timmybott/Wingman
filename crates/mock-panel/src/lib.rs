@@ -51,6 +51,7 @@ struct AppState {
     servers: Arc<Mutex<HashMap<String, ServerRuntime>>>,
     options: Arc<MockPanelOptions>,
     addr: SocketAddr,
+    backup_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
 struct ServerRuntime {
@@ -59,6 +60,39 @@ struct ServerRuntime {
     events: broadcast::Sender<String>,
     /// Virtual server filesystem: normalized relative path → contents.
     files: HashMap<String, Vec<u8>>,
+    backups: Vec<MockBackup>,
+}
+
+#[derive(Clone)]
+struct MockBackup {
+    uuid: String,
+    name: String,
+    created_at: String,
+    completed: bool,
+}
+
+impl MockBackup {
+    fn to_json(&self) -> Value {
+        json!({
+            "uuid": self.uuid,
+            "name": self.name,
+            "is_successful": self.completed,
+            "is_locked": false,
+            "bytes": if self.completed { 1_048_576 } else { 0 },
+            "created_at": self.created_at,
+            "completed_at": if self.completed { Value::String(self.created_at.clone()) } else { Value::Null }
+        })
+    }
+}
+
+/// Backup slots per sample server (mirrors `feature_limits.backups`).
+fn backup_limit(id: &str) -> usize {
+    match id {
+        "a1b2c3d4" => 3,
+        "b2c3d4e5" => 1,
+        "c3d4e5f6" => 2,
+        _ => 0,
+    }
 }
 
 impl AppState {
@@ -76,6 +110,7 @@ impl AppState {
                     state,
                     events,
                     files: HashMap::new(),
+                    backups: Vec::new(),
                 },
             );
         }
@@ -83,6 +118,7 @@ impl AppState {
             servers: Arc::new(Mutex::new(servers)),
             options: Arc::new(options),
             addr,
+            backup_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -227,6 +263,15 @@ fn router(state: AppState) -> Router {
         .route("/api/client/servers/{id}/resources", get(server_resources))
         .route("/api/client/servers/{id}/power", post(set_power))
         .route("/api/client/servers/{id}/websocket", get(websocket_details))
+        .route("/api/client/servers/{id}", get(server_details))
+        .route(
+            "/api/client/servers/{id}/backups",
+            get(list_backups).post(create_backup),
+        )
+        .route(
+            "/api/client/servers/{id}/backups/{uuid}",
+            get(backup_details).delete(delete_backup),
+        )
         .route("/api/client/servers/{id}/files/upload", get(upload_url))
         .route(
             "/api/client/servers/{id}/files/decompress",
@@ -413,6 +458,158 @@ async fn websocket_details(
         }
     }))
     .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Server details & backups
+// ---------------------------------------------------------------------------
+
+async fn server_details(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    if app.current_state(&id).is_none() {
+        return not_found();
+    }
+    let Some(attributes) = sample_servers()
+        .into_iter()
+        .find(|s| s["identifier"] == id.as_str())
+    else {
+        return not_found();
+    };
+    Json(json!({ "object": "server", "attributes": attributes })).into_response()
+}
+
+async fn list_backups(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get(&id) else {
+        return not_found();
+    };
+    let data: Vec<Value> = rt
+        .backups
+        .iter()
+        .map(|b| json!({ "object": "backup", "attributes": b.to_json() }))
+        .collect();
+    let total = data.len();
+    Json(json!({
+        "object": "list",
+        "data": data,
+        "meta": {
+            "backup_count": total,
+            "pagination": {
+                "total": total, "count": total, "per_page": 50,
+                "current_page": 1, "total_pages": 1, "links": {}
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// Create a backup; completes asynchronously after a short delay, like a
+/// real node. Rejects when the server's backup limit is reached.
+async fn create_backup(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let seq = app
+        .backup_seq
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let backup = {
+        let mut servers = app.servers.lock().unwrap();
+        let Some(rt) = servers.get_mut(&id) else {
+            return not_found();
+        };
+        if rt.backups.len() >= backup_limit(&id) {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "TooManyBackupsException",
+                "Cannot create a new backup, this server has reached its limit.",
+            );
+        }
+        let backup = MockBackup {
+            uuid: format!("backup-{seq}"),
+            name: body
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .unwrap_or("unnamed")
+                .to_string(),
+            created_at: format!("2026-07-19T00:{:02}:{:02}Z", (seq / 60) % 60, seq % 60),
+            completed: false,
+        };
+        rt.backups.push(backup.clone());
+        backup
+    };
+
+    // Complete the backup shortly after, like a real node.
+    let complete_app = app.clone();
+    let complete_id = id.clone();
+    let complete_uuid = backup.uuid.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut servers = complete_app.servers.lock().unwrap();
+        if let Some(rt) = servers.get_mut(&complete_id) {
+            if let Some(b) = rt.backups.iter_mut().find(|b| b.uuid == complete_uuid) {
+                b.completed = true;
+            }
+        }
+    });
+
+    Json(json!({ "object": "backup", "attributes": backup.to_json() })).into_response()
+}
+
+async fn backup_details(
+    State(app): State<AppState>,
+    Path((id, uuid)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let servers = app.servers.lock().unwrap();
+    let Some(backup) = servers
+        .get(&id)
+        .and_then(|rt| rt.backups.iter().find(|b| b.uuid == uuid))
+    else {
+        return not_found();
+    };
+    Json(json!({ "object": "backup", "attributes": backup.to_json() })).into_response()
+}
+
+async fn delete_backup(
+    State(app): State<AppState>,
+    Path((id, uuid)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let mut servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get_mut(&id) else {
+        return not_found();
+    };
+    let before = rt.backups.len();
+    rt.backups.retain(|b| b.uuid != uuid);
+    if rt.backups.len() == before {
+        return not_found();
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 // ---------------------------------------------------------------------------

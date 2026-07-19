@@ -3,10 +3,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  CommitInfo,
+  DeployStatus,
   DeployStep,
   PanelConfig,
   PowerSignal,
   ProjectConfig,
+  RepoStatus,
   Server,
   ServerEvent,
   ServerStats,
@@ -92,4 +95,25 @@ export function onDeployEvent(
   handler: (step: DeployStep) => void,
 ): Promise<UnlistenFn> {
   return listen<DeployStep>(`deploy-event-${projectId}`, (e) => handler(e.payload));
+}
+
+/** Deploy an old commit; progress arrives on the same deploy-event channel. */
+export function rollbackProject(projectId: string, commitId: string): Promise<void> {
+  return invoke<void>("rollback_project", { projectId, commitId });
+}
+
+export function repoStatus(projectId: string): Promise<RepoStatus> {
+  return invoke<RepoStatus>("repo_status", { projectId });
+}
+
+export function commitProject(projectId: string, message: string): Promise<CommitInfo> {
+  return invoke<CommitInfo>("commit_project", { projectId, message });
+}
+
+export function projectHistory(projectId: string, limit?: number): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>("project_history", { projectId, limit });
+}
+
+export function deployStatus(projectId: string): Promise<DeployStatus> {
+  return invoke<DeployStatus>("deploy_status", { projectId });
 }

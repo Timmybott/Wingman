@@ -29,6 +29,9 @@ pub enum Error {
     #[error("deploy failed: {0}")]
     Deploy(String),
 
+    #[error("git error: {0}")]
+    Git(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

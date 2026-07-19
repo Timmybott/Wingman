@@ -6,6 +6,13 @@ export interface LastDeploy {
   files: number;
 }
 
+export interface GitStatus {
+  projectName: string;
+  commitsSince: number;
+}
+
 export const appStatus = $state({
   lastDeploy: null as LastDeploy | null,
+  /** "N commits since last deploy" for the most recently touched project. */
+  gitStatus: null as GitStatus | null,
 });

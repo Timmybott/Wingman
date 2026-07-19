@@ -3,10 +3,12 @@
   import { onMount } from "svelte";
   import {
     deployProject,
+    deployStatus,
     listProjects,
     listServers,
     onDeployEvent,
     onServerEvent,
+    rollbackProject,
     sendConsoleCommand,
     serverResources,
     setPower,
@@ -24,6 +26,7 @@
     ServerEvent,
   } from "../types";
   import ConsoleView from "./ConsoleView.svelte";
+  import HistoryView from "./HistoryView.svelte";
   import LinkProjectDialog from "./LinkProjectDialog.svelte";
   import ServerCard from "./ServerCard.svelte";
 
@@ -38,6 +41,7 @@
   let projects = $state<ProjectConfig[]>([]);
   let deploys = $state<Record<string, DeployStep | null>>({});
   let dialogServer = $state<Server | null>(null);
+  let historyProject = $state<ProjectConfig | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
 
@@ -89,9 +93,31 @@
   }
 
   function handleDeployEvent(project: ProjectConfig, step: DeployStep) {
+    switch (step.step) {
+      // Log-style events go to the console buffer, not the tile label.
+      case "build_output":
+        appendConsole(project.server_identifier, `[build] ${step.line}`);
+        return;
+      case "backup_skipped":
+        appendConsole(project.server_identifier, `[wingman] backup skipped: ${step.reason}`);
+        return;
+      case "done":
+        appStatus.lastDeploy = { projectName: project.name, at: new Date(), files: step.files };
+        void refreshGitStatus(project);
+        break;
+    }
     deploys[project.id] = step;
-    if (step.step === "done") {
-      appStatus.lastDeploy = { projectName: project.name, at: new Date(), files: step.files };
+  }
+
+  /** Feed the footer's "N commits since last deploy". */
+  async function refreshGitStatus(project: ProjectConfig) {
+    try {
+      const ds = await deployStatus(project.id);
+      if (ds.commits_since !== null) {
+        appStatus.gitStatus = { projectName: project.name, commitsSince: ds.commits_since };
+      }
+    } catch {
+      // Footer info only — never disruptive.
     }
   }
 
@@ -140,6 +166,7 @@
         [servers, projects] = await Promise.all([listServers(), listProjects()]);
         for (const project of projects) {
           await watchProject(project);
+          void refreshGitStatus(project);
         }
         for (const server of servers) {
           if (cancelled) break;
@@ -172,9 +199,18 @@
   }
 
   async function deploy(project: ProjectConfig) {
-    deploys[project.id] = { step: "scanning" };
+    deploys[project.id] = { step: "committing" };
     try {
       await deployProject(project.id);
+    } catch (e) {
+      deploys[project.id] = { step: "failed", message: String(e) };
+    }
+  }
+
+  async function rollback(project: ProjectConfig, commitId: string) {
+    deploys[project.id] = { step: "checking_out" };
+    try {
+      await rollbackProject(project.id, commitId);
     } catch (e) {
       deploys[project.id] = { step: "failed", message: String(e) };
     }
@@ -219,6 +255,7 @@
         onOpenConsole={() => (openConsole = server.identifier)}
         onDeploy={() => project && deploy(project)}
         onConfigureProject={() => (dialogServer = server)}
+        onOpenHistory={() => (historyProject = project)}
       />
     {/each}
   </div>
@@ -243,6 +280,19 @@
     onSaved={projectSaved}
     onUnlinked={projectUnlinked}
     onClose={() => (dialogServer = null)}
+  />
+{/if}
+
+{#if historyProject}
+  {@const project = historyProject}
+  <HistoryView
+    {project}
+    onRollback={(commitId) => {
+      historyProject = null;
+      void rollback(project, commitId);
+    }}
+    onChanged={() => refreshGitStatus(project)}
+    onClose={() => (historyProject = null)}
   />
 {/if}
 

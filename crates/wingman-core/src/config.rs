@@ -73,6 +73,10 @@ pub struct DeployRecord {
     pub timestamp: u64,
     /// Relative paths (forward slashes) contained in that deploy.
     pub manifest: Vec<String>,
+    /// The git commit that was deployed — feeds "N commits since last
+    /// deploy" and marks the current state in the history view.
+    #[serde(default)]
+    pub commit: Option<String>,
 }
 
 /// Loads and saves the JSON config files. The directory is injected so the

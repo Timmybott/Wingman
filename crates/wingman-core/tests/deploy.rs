@@ -5,9 +5,9 @@ use mock_panel::{MockPanel, API_KEY};
 use std::path::Path;
 use std::time::Duration;
 use tokio::time::timeout;
-use wingman_core::deploy::{start_deploy, DeployStep};
+use wingman_core::deploy::{start_deploy, start_rollback, DeployStep, BACKUP_PREFIX};
 use wingman_core::models::PowerState;
-use wingman_core::{ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
+use wingman_core::{git, ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
 
 const SERVER: &str = "a1b2c3d4";
 
@@ -17,13 +17,13 @@ fn write_file(root: &Path, rel: &str, content: &str) {
     std::fs::write(path, content).unwrap();
 }
 
-/// A small realistic project: app files, ignored build artifacts, git dir.
+/// A small realistic project: app files plus ignored build artifacts. The
+/// engine turns the folder into a real git repository on the first deploy.
 fn sample_project_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     write_file(dir.path(), "index.js", "console.log('hi')");
     write_file(dir.path(), "config/settings.yml", "motd: hello");
     write_file(dir.path(), "node_modules/lib/x.js", "x");
-    write_file(dir.path(), ".git/HEAD", "ref: refs/heads/main");
     write_file(dir.path(), ".deployignore", "node_modules/\n");
     dir
 }
@@ -42,14 +42,8 @@ fn project(local: &Path, target_dir: &str, post_deploy: PostDeployAction) -> Pro
     }
 }
 
-/// Drive a deploy to its terminal event, collecting every step on the way.
-async fn run_deploy(
-    panel: &MockPanel,
-    store: &ConfigStore,
-    project: &ProjectConfig,
-) -> Vec<DeployStep> {
-    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
-    let mut handle = start_deploy(client, store.clone(), project.clone());
+/// Drive an engine handle to its terminal event, collecting every step.
+async fn drive(mut handle: wingman_core::DeployHandle) -> Vec<DeployStep> {
     let mut steps = Vec::new();
     loop {
         let step = timeout(Duration::from_secs(15), handle.events.recv())
@@ -62,6 +56,31 @@ async fn run_deploy(
             return steps;
         }
     }
+}
+
+async fn run_deploy(
+    panel: &MockPanel,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+) -> Vec<DeployStep> {
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+    drive(start_deploy(client, store.clone(), project.clone())).await
+}
+
+async fn run_rollback(
+    panel: &MockPanel,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+    commit: &str,
+) -> Vec<DeployStep> {
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+    drive(start_rollback(
+        client,
+        store.clone(),
+        project.clone(),
+        commit.to_string(),
+    ))
+    .await
 }
 
 fn assert_done(steps: &[DeployStep]) -> (usize, usize) {
@@ -157,25 +176,14 @@ async fn emits_progress_steps_in_order() {
     )
     .await;
 
-    let kinds: Vec<&'static str> = steps
-        .iter()
-        .map(|s| match s {
-            DeployStep::Scanning => "scanning",
-            DeployStep::Packing { .. } => "packing",
-            DeployStep::Uploading { .. } => "uploading",
-            DeployStep::Extracting => "extracting",
-            DeployStep::CleaningUp => "cleaning_up",
-            DeployStep::Restarting => "restarting",
-            DeployStep::Done { .. } => "done",
-            DeployStep::Failed { .. } => "failed",
-        })
-        .collect();
+    let kinds = step_kinds(&steps);
     // Uploading may appear several times (progress); dedup for the order check.
     let mut order = kinds.clone();
     order.dedup();
     assert_eq!(
         order,
         vec![
+            "committing",
             "scanning",
             "packing",
             "uploading",
@@ -185,6 +193,28 @@ async fn emits_progress_steps_in_order() {
         ],
         "full sequence was: {kinds:?}"
     );
+}
+
+fn step_kinds(steps: &[DeployStep]) -> Vec<&'static str> {
+    steps
+        .iter()
+        .map(|s| match s {
+            DeployStep::Committing => "committing",
+            DeployStep::CheckingOut => "checking_out",
+            DeployStep::Building => "building",
+            DeployStep::BuildOutput { .. } => "build_output",
+            DeployStep::BackingUp => "backing_up",
+            DeployStep::BackupSkipped { .. } => "backup_skipped",
+            DeployStep::Scanning => "scanning",
+            DeployStep::Packing { .. } => "packing",
+            DeployStep::Uploading { .. } => "uploading",
+            DeployStep::Extracting => "extracting",
+            DeployStep::CleaningUp => "cleaning_up",
+            DeployStep::Restarting => "restarting",
+            DeployStep::Done { .. } => "done",
+            DeployStep::Failed { .. } => "failed",
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -218,6 +248,209 @@ async fn restart_mode_triggers_a_power_cycle() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(saw_transition, "server never left the running state");
+}
+
+#[tokio::test]
+async fn records_the_deployed_commit() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let project = project(dir.path(), "", PostDeployAction::Notify);
+
+    assert_done(&run_deploy(&panel, &store, &project).await);
+
+    let record = store.load_deploy_record(&project.id).unwrap().unwrap();
+    let commit = record.commit.expect("deploy must record a commit");
+    let history = git::log(dir.path(), 10).unwrap();
+    assert_eq!(history.len(), 1, "auto-commit created exactly one commit");
+    assert_eq!(history[0].id, commit);
+    assert!(history[0].summary.starts_with("Deploy at "));
+    // A clean second deploy records the same commit without creating a new one.
+    assert_done(&run_deploy(&panel, &store, &project).await);
+    assert_eq!(git::log(dir.path(), 10).unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn build_command_streams_output_and_ships_artifacts() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let mut project = project(dir.path(), "", PostDeployAction::Notify);
+    project.build_command = Some("echo hello-from-build && printf artifact > build.txt".into());
+
+    let steps = run_deploy(&panel, &store, &project).await;
+    assert_done(&steps);
+    assert!(
+        steps.iter().any(|s| matches!(
+            s,
+            DeployStep::BuildOutput { line } if line.contains("hello-from-build")
+        )),
+        "expected the build output line, got {steps:?}"
+    );
+    assert_eq!(
+        panel.file_contents(SERVER, "build.txt").unwrap(),
+        b"artifact",
+        "the build artifact is part of the deploy"
+    );
+}
+
+#[tokio::test]
+async fn failing_build_aborts_before_upload() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let mut project = project(dir.path(), "", PostDeployAction::Notify);
+    project.build_command = Some("echo boom && exit 3".into());
+
+    let steps = run_deploy(&panel, &store, &project).await;
+    match steps.last() {
+        Some(DeployStep::Failed { message }) => {
+            assert!(
+                message.contains("build command failed"),
+                "message: {message}"
+            )
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
+    assert!(
+        panel.server_files(SERVER).is_empty(),
+        "nothing may reach the server when the build fails"
+    );
+}
+
+#[tokio::test]
+async fn creates_and_completes_a_pre_deploy_backup() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let mut project = project(dir.path(), "", PostDeployAction::Notify);
+    project.auto_backup = true;
+
+    let steps = run_deploy(&panel, &store, &project).await;
+    assert_done(&steps);
+    assert!(steps.iter().any(|s| matches!(s, DeployStep::BackingUp)));
+
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+    let backups = client.list_backups(SERVER).await.unwrap();
+    assert_eq!(backups.len(), 1);
+    assert!(backups[0].name.starts_with(BACKUP_PREFIX));
+    assert!(
+        backups[0].completed_at.is_some(),
+        "engine waits for completion"
+    );
+    assert!(backups[0].is_successful);
+}
+
+#[tokio::test]
+async fn rotates_own_backups_when_the_limit_is_reached() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+
+    // Fill all 3 slots of a1b2c3d4 with Wingman-created backups.
+    let oldest = client
+        .create_backup(SERVER, &format!("{BACKUP_PREFIX}old-1"))
+        .await
+        .unwrap();
+    client
+        .create_backup(SERVER, &format!("{BACKUP_PREFIX}old-2"))
+        .await
+        .unwrap();
+    client
+        .create_backup(SERVER, &format!("{BACKUP_PREFIX}old-3"))
+        .await
+        .unwrap();
+
+    let mut project = project(dir.path(), "", PostDeployAction::Notify);
+    project.auto_backup = true;
+    assert_done(&run_deploy(&panel, &store, &project).await);
+
+    let backups = client.list_backups(SERVER).await.unwrap();
+    assert_eq!(backups.len(), 3, "limit stays respected");
+    assert!(
+        !backups.iter().any(|b| b.uuid == oldest.uuid),
+        "the oldest Wingman backup was rotated out"
+    );
+}
+
+#[tokio::test]
+async fn skips_backup_instead_of_touching_foreign_backups() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+
+    // b2c3d4e5 has a single slot, filled with a user-created backup.
+    let foreign = client
+        .create_backup("b2c3d4e5", "my-precious-backup")
+        .await
+        .unwrap();
+
+    let mut project = project(dir.path(), "", PostDeployAction::Notify);
+    project.server_identifier = "b2c3d4e5".into();
+    project.auto_backup = true;
+    let steps = run_deploy(&panel, &store, &project).await;
+    assert_done(&steps);
+    assert!(
+        steps
+            .iter()
+            .any(|s| matches!(s, DeployStep::BackupSkipped { .. })),
+        "expected BackupSkipped, got {steps:?}"
+    );
+
+    let backups = client.list_backups("b2c3d4e5").await.unwrap();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(backups[0].uuid, foreign.uuid, "foreign backup untouched");
+}
+
+#[tokio::test]
+async fn rollback_restores_an_old_deploy() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let project = project(dir.path(), "", PostDeployAction::Notify);
+
+    // v1
+    assert_done(&run_deploy(&panel, &store, &project).await);
+    let v1_commit = store
+        .load_deploy_record(&project.id)
+        .unwrap()
+        .unwrap()
+        .commit
+        .unwrap();
+
+    // v2: change a file, add a new one.
+    write_file(dir.path(), "index.js", "console.log('v2')");
+    write_file(dir.path(), "extra.txt", "only in v2");
+    assert_done(&run_deploy(&panel, &store, &project).await);
+    assert_eq!(
+        panel.file_contents(SERVER, "index.js").unwrap(),
+        b"console.log('v2')"
+    );
+    assert!(panel.file_contents(SERVER, "extra.txt").is_some());
+
+    // Rollback to v1: old content restored, v2-only file removed remotely,
+    // and the local working tree keeps its v2 state.
+    let steps = run_rollback(&panel, &store, &project, &v1_commit).await;
+    assert!(steps.iter().any(|s| matches!(s, DeployStep::CheckingOut)));
+    assert_done(&steps);
+
+    assert_eq!(
+        panel.file_contents(SERVER, "index.js").unwrap(),
+        b"console.log('hi')"
+    );
+    assert!(
+        panel.file_contents(SERVER, "extra.txt").is_none(),
+        "the v2-only file is deleted by the manifest diff"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("index.js")).unwrap(),
+        "console.log('v2')",
+        "the working tree is untouched by the rollback"
+    );
+    let record = store.load_deploy_record(&project.id).unwrap().unwrap();
+    assert_eq!(record.commit.as_deref(), Some(v1_commit.as_str()));
 }
 
 #[tokio::test]
