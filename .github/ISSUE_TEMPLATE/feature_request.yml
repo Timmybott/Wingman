@@ -1,0 +1,18 @@
+name: Feature request
+description: An idea that would make Wingman better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation where you miss this feature.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: How could it work?
+      description: Your idea of how Wingman should handle it. Rough sketches welcome.
+    validations:
+      required: false
