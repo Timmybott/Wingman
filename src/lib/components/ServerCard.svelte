@@ -19,6 +19,7 @@
     onDeploy,
     onConfigureProject,
     onOpenHistory,
+    onOpenFiles,
   }: {
     server: Server;
     live: LiveState;
@@ -29,6 +30,7 @@
     onDeploy: () => void;
     onConfigureProject: () => void;
     onOpenHistory: () => void;
+    onOpenFiles: () => void;
   } = $props();
 
   let busy = $state(false);
@@ -257,6 +259,7 @@
     >
       History
     </button>
+    <button class="ghost" onclick={onOpenFiles} title="Browse server files">Files</button>
   </div>
 </article>
 

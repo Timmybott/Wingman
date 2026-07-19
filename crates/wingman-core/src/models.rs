@@ -147,6 +147,21 @@ pub struct WebsocketDetails {
     pub socket: String,
 }
 
+/// One entry of a server directory listing (`GET .../files/list`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    #[serde(default)]
+    pub size: u64,
+    pub is_file: bool,
+    #[serde(default)]
+    pub is_symlink: bool,
+    #[serde(default)]
+    pub mimetype: String,
+    #[serde(default)]
+    pub modified_at: String,
+}
+
 /// A server backup as returned by the backups endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Backup {

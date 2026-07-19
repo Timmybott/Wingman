@@ -21,6 +21,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -51,6 +53,9 @@ pub fn run() {
             commands::commit_project,
             commands::project_history,
             commands::deploy_status,
+            commands::list_server_files,
+            commands::delete_server_files,
+            commands::create_server_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

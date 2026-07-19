@@ -26,6 +26,7 @@
     ServerEvent,
   } from "../types";
   import ConsoleView from "./ConsoleView.svelte";
+  import FileBrowser from "./FileBrowser.svelte";
   import HistoryView from "./HistoryView.svelte";
   import LinkProjectDialog from "./LinkProjectDialog.svelte";
   import ServerCard from "./ServerCard.svelte";
@@ -42,6 +43,7 @@
   let deploys = $state<Record<string, DeployStep | null>>({});
   let dialogServer = $state<Server | null>(null);
   let historyProject = $state<ProjectConfig | null>(null);
+  let filesServer = $state<Server | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
 
@@ -256,6 +258,7 @@
         onDeploy={() => project && deploy(project)}
         onConfigureProject={() => (dialogServer = server)}
         onOpenHistory={() => (historyProject = project)}
+        onOpenFiles={() => (filesServer = server)}
       />
     {/each}
   </div>
@@ -281,6 +284,10 @@
     onUnlinked={projectUnlinked}
     onClose={() => (dialogServer = null)}
   />
+{/if}
+
+{#if filesServer}
+  <FileBrowser server={filesServer} onClose={() => (filesServer = null)} />
 {/if}
 
 {#if historyProject}

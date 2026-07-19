@@ -2,7 +2,22 @@
 
 **A desktop client for [Pterodactyl](https://pterodactyl.io) with a one-click deploy workflow — think GitHub Desktop, but for your game servers.**
 
-> ⚠️ Wingman is in early development. Milestones M1–M4 (panel connection, live servers, one-click deploys, git-backed versioning with rollback) are implemented; the file browser, auto-updater and first releases (M5) are on the way. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
+> ⚠️ Wingman is young software, but feature-complete for v1: all five milestones (panel connection, live servers, one-click deploys, git-backed versioning with rollback, file browser + auto-updater) are implemented. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
+
+## Installation
+
+> The first public release is in preparation — the buttons below go live with it.
+
+**Windows:** Download `Wingman_x.y.z_x64-setup.exe` from the
+[latest release](https://github.com/Timmybott/Wingman/releases/latest) and run it.
+
+**Linux:** One line — installs the `.deb` on Debian/Ubuntu, the AppImage everywhere else:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Timmybott/Wingman/main/install.sh | bash
+```
+
+Once installed, Wingman keeps itself up to date through its built-in updater.
 
 ## What it does (and will do)
 
@@ -12,7 +27,7 @@ Pick a local project folder, keep versions as git commits, and push them to your
 - ✅ **M2 — Live servers**: power actions (start/stop/restart/kill), streamed console with command input, live stats over the Wings websocket (token refresh + auto-reconnect included)
 - ✅ **M3 — Deploy**: link a project folder and deploy it with one click — zip → upload → extract via the panel's file API, `.deployignore` (gitignore syntax), stale files deleted via manifest diff, configurable target folder, post-deploy restart or desktop notification, live progress on the server tile
 - ✅ **M4 — Versioning**: every project is a real git repository (auto-initialized, auto-committed on deploy), commit UI and history with one-click rollback that never touches your working tree, automatic pre-deploy backups with rotation (Wingman never deletes backups it didn't create), optional build command with streamed output
-- 🔜 **M5 — Comfort & release**: server file browser, auto-updater, first Windows + Linux releases
+- ✅ **M5 — Comfort & release**: server file browser (navigate, create folders, delete), built-in auto-updater fed by GitHub releases, release pipeline for Windows (NSIS) + Linux (deb/AppImage) and a one-line Linux installer
 
 ## Development
 

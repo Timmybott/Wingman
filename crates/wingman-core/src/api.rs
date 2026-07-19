@@ -2,7 +2,7 @@
 
 use crate::error::Error;
 use crate::models::{
-    ApiList, ApiObject, Backup, PowerSignal, Server, ServerStats, WebsocketDetails,
+    ApiList, ApiObject, Backup, FileEntry, PowerSignal, Server, ServerStats, WebsocketDetails,
 };
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
@@ -183,6 +183,22 @@ impl PanelClient {
             .await?;
         ensure_success(response).await?;
         Ok(())
+    }
+
+    /// Directory listing for the server file browser.
+    pub async fn list_files(
+        &self,
+        identifier: &str,
+        directory: &str,
+    ) -> Result<Vec<FileEntry>, Error> {
+        validate_identifier(identifier)?;
+        let list: ApiList<FileEntry> = self
+            .get_json(
+                &format!("api/client/servers/{identifier}/files/list"),
+                &[("directory", directory.to_string())],
+            )
+            .await?;
+        Ok(list.data.into_iter().map(|o| o.attributes).collect())
     }
 
     /// Signed one-time URL for uploading files directly to the Wings node.

@@ -114,6 +114,16 @@ export interface DeployStatus {
   commits_since: number | null;
 }
 
+/** One entry of a server directory listing. */
+export interface FileEntry {
+  name: string;
+  size: number;
+  is_file: boolean;
+  is_symlink: boolean;
+  mimetype: string;
+  modified_at: string;
+}
+
 /** Live snapshot pushed by Wings over the websocket. */
 export interface WsStats {
   memory_bytes: number;

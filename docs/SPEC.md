@@ -151,7 +151,7 @@ ist der Rettungsanker.
 - **M2 — Server fühlt sich echt an** ✅: Power-Buttons (Kill zweistufig), Websocket → Live-Konsole mit Befehlseingabe + CPU/RAM live, Token-Refresh/Reconnect mit Backoff
 - **M3 — Deploy-Kern** ✅: Projektordner verknüpfen (Ordner-Picker), Zip → Upload → Entpacken → Zip-Cleanup, `.deployignore`, Manifest-Löschung, Zielordner, Verhalten nach Deploy, Desktop-Benachrichtigungen, Fortschritt auf der Kachel
 - **M4 — Versionierung** ✅: git2-Integration (Repo-Init beim Verknüpfen, Auto-Commit vor Deploy), Commit-UI + Historie mit „deployed"-Marker, Rollback (Tree-Archive in Tempdir, Working Tree unberührt), Auto-Backup mit Rotation (nur eigene `wingman-pre-deploy-*`), optionaler Build-Befehl mit Live-Output, Fußleiste „N Commits seit letztem Deploy"
-- **M5 — Komfort & Release:** Datei-Browser, Auto-Updater (Signatur-Schlüsselpaar!), Release-Builds Windows (NSIS) + Linux (AppImage, .deb), Repo aktiv bewerben
+- **M5 — Komfort & Release** ✅: Datei-Browser (navigieren, Ordner anlegen, löschen), Auto-Updater (GitHub Releases + latest.json; Signatur-Schlüsselpaar wird vom Betreiber erzeugt, siehe docs/RELEASING.md), Release-Workflow für Windows (NSIS) + Linux (AppImage, .deb), Ein-Zeilen-Installer für Linux (install.sh)
 
 ---
 
@@ -166,7 +166,8 @@ ist der Rettungsanker.
 ## 9. Offene Punkte
 
 - [ ] Logo/Icon entwerfen (aktuell Platzhalter: violettes „W")
-- [ ] M5 starten (Datei-Browser, Auto-Updater inkl. Signatur-Schlüsselpaar, Release-Builds, Repo bewerben)
+- [ ] Erstes Release veröffentlichen: Updater-Schlüsselpaar erzeugen, Secrets setzen, Tag pushen (docs/RELEASING.md), dann Launch in den Community-Kanälen (Abschnitt 8)
+- [x] M5 (Datei-Browser, Auto-Updater, Release-Pipeline, Installer) — 19.07.2026
 - [x] M4 (Versionierung) — 19.07.2026
 - [x] M3 (Deploy-Kern) — 19.07.2026
 - [x] M2 (Websocket, Power-Aktionen, Konsole) — 19.07.2026

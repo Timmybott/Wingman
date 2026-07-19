@@ -8,7 +8,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 use wingman_core::deploy::{start_deploy, start_rollback, DeployStep};
 use wingman_core::git;
-use wingman_core::models::{PowerSignal, Server, ServerStats};
+use wingman_core::models::{FileEntry, PowerSignal, Server, ServerStats};
 use wingman_core::ws::Outgoing;
 use wingman_core::{
     normalize_base_url, CommitInfo, DeployHandle, PanelClient, PanelConfig, PostDeployAction,
@@ -344,6 +344,51 @@ fn forward_engine_events(
         let state: State<'_, AppState> = app.state();
         state.deploys.lock().await.remove(&project_id);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Server file browser
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_server_files(
+    state: State<'_, AppState>,
+    identifier: String,
+    directory: String,
+) -> CmdResult<Vec<FileEntry>> {
+    let client = client_for(&state)?;
+    client
+        .list_files(&identifier, &directory)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_server_files(
+    state: State<'_, AppState>,
+    identifier: String,
+    root: String,
+    files: Vec<String>,
+) -> CmdResult<()> {
+    let client = client_for(&state)?;
+    client
+        .delete_files(&identifier, &root, &files)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_server_folder(
+    state: State<'_, AppState>,
+    identifier: String,
+    root: String,
+    name: String,
+) -> CmdResult<()> {
+    let client = client_for(&state)?;
+    client
+        .create_folder(&identifier, &root, &name)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

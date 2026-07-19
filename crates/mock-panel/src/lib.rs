@@ -60,6 +60,8 @@ struct ServerRuntime {
     events: broadcast::Sender<String>,
     /// Virtual server filesystem: normalized relative path → contents.
     files: HashMap<String, Vec<u8>>,
+    /// Explicitly created (possibly empty) directories.
+    dirs: std::collections::BTreeSet<String>,
     backups: Vec<MockBackup>,
 }
 
@@ -110,6 +112,7 @@ impl AppState {
                     state,
                     events,
                     files: HashMap::new(),
+                    dirs: std::collections::BTreeSet::new(),
                     backups: Vec::new(),
                 },
             );
@@ -170,6 +173,8 @@ impl AppState {
             let prefix = format!("{path}/");
             rt.files
                 .retain(|key, _| key != path && !key.starts_with(&prefix));
+            rt.dirs
+                .retain(|key| key != path && !key.starts_with(&prefix));
         }
     }
 
@@ -272,6 +277,7 @@ fn router(state: AppState) -> Router {
             "/api/client/servers/{id}/backups/{uuid}",
             get(backup_details).delete(delete_backup),
         )
+        .route("/api/client/servers/{id}/files/list", get(list_files))
         .route("/api/client/servers/{id}/files/upload", get(upload_url))
         .route(
             "/api/client/servers/{id}/files/decompress",
@@ -745,21 +751,99 @@ async fn delete_files(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// The virtual filesystem has no directory entries — creating a folder is a
-/// no-op that only validates the request, like a very forgiving panel.
 async fn create_folder(
     State(app): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Response {
     if !authorized(&headers) {
         return unauthorized();
     }
-    if app.current_state(&id).is_none() {
+    let root = body.get("root").and_then(Value::as_str).unwrap_or("/");
+    let name = body.get("name").and_then(Value::as_str).unwrap_or("");
+    let key = join_remote(root, name);
+    let mut servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get_mut(&id) else {
         return not_found();
+    };
+    if !key.is_empty() {
+        rt.dirs.insert(key);
     }
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// Directory listing: files stored directly in the directory plus
+/// sub-directories, derived from deeper file paths and explicit folders.
+async fn list_files(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if !authorized(&headers) {
+        return unauthorized();
+    }
+    let directory = query
+        .get("directory")
+        .cloned()
+        .unwrap_or_else(|| "/".into());
+    let prefix = {
+        let key = join_remote(&directory, "");
+        if key.is_empty() {
+            String::new()
+        } else {
+            format!("{key}/")
+        }
+    };
+
+    let servers = app.servers.lock().unwrap();
+    let Some(rt) = servers.get(&id) else {
+        return not_found();
+    };
+    let mut dirs = std::collections::BTreeSet::new();
+    let mut files: Vec<(String, usize)> = Vec::new();
+    for (key, contents) in &rt.files {
+        let Some(rest) = key.strip_prefix(&prefix) else {
+            continue;
+        };
+        match rest.split_once('/') {
+            Some((dir, _)) => {
+                dirs.insert(dir.to_string());
+            }
+            None => files.push((rest.to_string(), contents.len())),
+        }
+    }
+    for key in &rt.dirs {
+        if let Some(rest) = key.strip_prefix(&prefix) {
+            if !rest.is_empty() {
+                dirs.insert(rest.split('/').next().unwrap_or(rest).to_string());
+            }
+        }
+    }
+    files.sort();
+
+    let entry = |name: &str, size: usize, is_file: bool| {
+        json!({
+            "object": "file_object",
+            "attributes": {
+                "name": name,
+                "mode": if is_file { "-rw-r--r--" } else { "drwxr-xr-x" },
+                "size": size,
+                "is_file": is_file,
+                "is_symlink": false,
+                "mimetype": if is_file { "text/plain" } else { "inode/directory" },
+                "created_at": "2026-07-19T00:00:00Z",
+                "modified_at": "2026-07-19T00:00:00Z"
+            }
+        })
+    };
+    let data: Vec<Value> = dirs
+        .iter()
+        .map(|d| entry(d, 0, false))
+        .chain(files.iter().map(|(name, size)| entry(name, *size, true)))
+        .collect();
+    Json(json!({ "object": "list", "data": data })).into_response()
 }
 
 // ---------------------------------------------------------------------------

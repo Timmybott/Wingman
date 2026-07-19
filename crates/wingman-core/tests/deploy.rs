@@ -454,6 +454,38 @@ async fn rollback_restores_an_old_deploy() {
 }
 
 #[tokio::test]
+async fn file_listing_reflects_a_deploy() {
+    let panel = MockPanel::spawn().await;
+    let dir = sample_project_dir();
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+
+    assert_done(
+        &run_deploy(
+            &panel,
+            &store,
+            &project(dir.path(), "", PostDeployAction::Notify),
+        )
+        .await,
+    );
+
+    let root = client.list_files(SERVER, "/").await.unwrap();
+    let names: Vec<(&str, bool)> = root.iter().map(|e| (e.name.as_str(), e.is_file)).collect();
+    assert_eq!(names, vec![("config", false), ("index.js", true)]);
+    assert!(root.iter().any(|e| e.is_file && e.size > 0));
+
+    let sub = client.list_files(SERVER, "/config").await.unwrap();
+    assert_eq!(sub.len(), 1);
+    assert_eq!(sub[0].name, "settings.yml");
+    assert!(sub[0].is_file);
+
+    // Folders created via the API show up even while empty.
+    client.create_folder(SERVER, "/", "plugins").await.unwrap();
+    let root = client.list_files(SERVER, "/").await.unwrap();
+    assert!(root.iter().any(|e| e.name == "plugins" && !e.is_file));
+}
+
+#[tokio::test]
 async fn failing_deploy_ends_with_failed_event() {
     let panel = MockPanel::spawn().await;
     let dir = tempfile::tempdir().unwrap(); // empty project

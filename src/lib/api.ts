@@ -6,6 +6,7 @@ import type {
   CommitInfo,
   DeployStatus,
   DeployStep,
+  FileEntry,
   PanelConfig,
   PowerSignal,
   ProjectConfig,
@@ -116,4 +117,27 @@ export function projectHistory(projectId: string, limit?: number): Promise<Commi
 
 export function deployStatus(projectId: string): Promise<DeployStatus> {
   return invoke<DeployStatus>("deploy_status", { projectId });
+}
+
+export function listServerFiles(
+  identifier: string,
+  directory: string,
+): Promise<FileEntry[]> {
+  return invoke<FileEntry[]>("list_server_files", { identifier, directory });
+}
+
+export function deleteServerFiles(
+  identifier: string,
+  root: string,
+  files: string[],
+): Promise<void> {
+  return invoke<void>("delete_server_files", { identifier, root, files });
+}
+
+export function createServerFolder(
+  identifier: string,
+  root: string,
+  name: string,
+): Promise<void> {
+  return invoke<void>("create_server_folder", { identifier, root, name });
 }
