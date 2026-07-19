@@ -55,22 +55,22 @@ pub struct Server {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerLimits {
     /// MiB, 0 = unlimited.
-    pub memory: i64,
-    pub swap: i64,
+    pub memory: Option<i64>,
+    pub swap: Option<i64>,
     /// MiB, 0 = unlimited.
-    pub disk: i64,
+    pub disk: Option<i64>,
     #[serde(default)]
     pub io: Option<i64>,
     /// Percent across cores (100 = one full core), 0 = unlimited.
-    pub cpu: i64,
+    pub cpu: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureLimits {
-    pub databases: i64,
-    pub allocations: i64,
+    pub databases: Option<i64>,
+    pub allocations: Option<i64>,
     /// Backup slots on the server — relevant for pre-deploy backup rotation (M4).
-    pub backups: i64,
+    pub backups: Option<i64>,
 }
 
 /// Response of `GET /api/client/servers/{id}/resources`.
