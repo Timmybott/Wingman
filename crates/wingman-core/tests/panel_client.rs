@@ -14,11 +14,11 @@ async fn lists_all_servers_across_pages() {
     assert_eq!(servers.len(), 3);
     assert_eq!(servers[0].name, "Survival SMP");
     assert_eq!(servers[0].identifier, "a1b2c3d4");
-    assert_eq!(servers[0].limits.memory, 4096);
-    assert_eq!(servers[0].feature_limits.backups, 3);
+    assert_eq!(servers[0].limits.memory, Some(4096));
+    assert_eq!(servers[0].feature_limits.backups, Some(3));
     assert_eq!(servers[2].name, "Factorio");
     assert_eq!(
-        servers[2].limits.cpu, 0,
+        servers[2].limits.cpu, Some(0),
         "unlimited CPU is represented as 0"
     );
 }
