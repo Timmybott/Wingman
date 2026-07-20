@@ -1,6 +1,7 @@
 <script lang="ts">
   import { removePanel } from "../api";
   import type { PanelConfig } from "../types";
+  import Logo from "./Logo.svelte";
 
   let { panel, onDisconnect }: { panel: PanelConfig | null; onDisconnect: () => void } =
     $props();
@@ -22,7 +23,7 @@
 
 <header>
   <div class="brand">
-    <span class="logo">W</span>
+    <Logo size={26} />
     <h1>Wingman</h1>
   </div>
   <div class="connection">
@@ -51,18 +52,6 @@
     display: flex;
     align-items: center;
     gap: 10px;
-  }
-
-  .logo {
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
-    background: var(--accent);
-    color: #fff;
-    font-weight: 700;
-    font-size: 15px;
   }
 
   h1 {

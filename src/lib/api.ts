@@ -10,6 +10,7 @@ import type {
   PanelConfig,
   PowerSignal,
   ProjectConfig,
+  RemoteDeployInfo,
   RepoStatus,
   Server,
   ServerEvent,
@@ -101,6 +102,19 @@ export function onDeployEvent(
 /** Deploy an old commit; progress arrives on the same deploy-event channel. */
 export function rollbackProject(projectId: string, commitId: string): Promise<void> {
   return invoke<void>("rollback_project", { projectId, commitId });
+}
+
+/**
+ * Pull server files into the local folder. "import" fills an empty folder
+ * right after linking; "sync" updates a clean working tree when another
+ * device deployed. Progress arrives on the deploy-event channel.
+ */
+export function pullProject(projectId: string, mode: "import" | "sync"): Promise<void> {
+  return invoke<void>("pull_project", { projectId, mode });
+}
+
+export function checkRemoteDeploy(projectId: string): Promise<RemoteDeployInfo> {
+  return invoke<RemoteDeployInfo>("check_remote_deploy", { projectId });
 }
 
 export function repoStatus(projectId: string): Promise<RepoStatus> {

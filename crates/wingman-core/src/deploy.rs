@@ -58,6 +58,13 @@ pub enum DeployStep {
     Uploading {
         percent: u8,
     },
+    /// Pull only (initial import / multi-device sync): fetching the server
+    /// archive.
+    Downloading {
+        percent: u8,
+    },
+    /// Pull only: writing the downloaded files into the local folder.
+    Importing,
     Extracting,
     CleaningUp,
     Restarting,
@@ -99,7 +106,7 @@ pub fn start_rollback(
     )
 }
 
-fn spawn_engine<F, Fut>(run: F) -> DeployHandle
+pub(crate) fn spawn_engine<F, Fut>(run: F) -> DeployHandle
 where
     F: FnOnce(mpsc::Sender<DeployStep>) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<(usize, usize), Error>> + Send,
@@ -312,14 +319,25 @@ async fn run_pipeline(
             .await?;
     }
 
+    let deployed_at = now_secs();
     store.save_deploy_record(
         &project.id,
         &DeployRecord {
-            timestamp: now_secs(),
+            timestamp: deployed_at,
             manifest: manifest.clone(),
-            commit,
+            commit: commit.clone(),
         },
     )?;
+
+    // Announce this deploy to other devices (multi-device sync). Best
+    // effort — a panel without files/write must not fail the deploy.
+    let _ = client
+        .write_file(
+            &project.server_identifier,
+            &crate::sync::state_path(&root),
+            crate::sync::state_json(deployed_at, &commit, &manifest),
+        )
+        .await;
 
     if project.post_deploy == PostDeployAction::Restart {
         let _ = tx.send(DeployStep::Restarting).await;
@@ -521,7 +539,7 @@ pub fn normalize_target_dir(target: &str) -> Result<String, Error> {
     }
 }
 
-fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before unix epoch")
