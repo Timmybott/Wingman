@@ -1,6 +1,6 @@
 [package]
 name = "mock-panel"
-description = "Mock of the Pterodactyl client API subset used by Wingman, for tests and local development"
+description = "Mock of the Pterodactyl client API subset used by Feather, for tests and local development"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

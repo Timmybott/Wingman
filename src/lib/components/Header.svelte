@@ -24,7 +24,7 @@
 <header>
   <div class="brand">
     <Logo size={26} />
-    <h1>Wingman</h1>
+    <h1>Feather</h1>
   </div>
   <div class="connection">
     {#if panel}

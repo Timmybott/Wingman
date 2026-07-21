@@ -1,8 +1,8 @@
 //! Local git operations (libgit2 via git2, no network transports).
 //!
-//! Wingman keeps every linked project in a plain git repository: commits are
+//! Feather keeps every linked project in a plain git repository: commits are
 //! deploy checkpoints, history powers rollback. Power users can work with the
-//! same repo using normal git tooling — nothing here is Wingman-specific.
+//! same repo using normal git tooling — nothing here is Feather-specific.
 //!
 //! All functions are blocking (libgit2 is synchronous); callers on an async
 //! runtime wrap them in `spawn_blocking`.
@@ -53,7 +53,7 @@ fn signature(repo: &Repository) -> Result<Signature<'static>, Error> {
     // Use the user's configured identity when available, otherwise a
     // neutral fallback so committing never blocks on git config.
     repo.signature()
-        .or_else(|_| Signature::now("Wingman", "wingman@localhost"))
+        .or_else(|_| Signature::now("Feather", "feather@localhost"))
         .map_err(map_err)
 }
 

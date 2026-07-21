@@ -1,4 +1,4 @@
-# Projektspezifikation: Wingman — Desktop-Client für Pterodactyl
+# Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
 > Stand: 19. Juli 2026 · Version 0.2 (ergänzt um Deploy-Flow v2, Datenmodell, Architektur und die finalen Grundsatzentscheidungen)
 
@@ -8,7 +8,7 @@
 
 Eine Desktop-App für **Linux und Windows**, die für Pterodactyl das ist, was GitHub Desktop für Git/GitHub ist: Man wählt lokal einen Projektordner, hält Versionsstände als Commits fest und deployed sie per Klick auf den eigenen Pterodactyl-Server — und verwaltet die Server nebenbei gleich mit (Start/Stop, Status, Konsole).
 
-**Marktumfeld:** Für Pterodactyl existieren Mobile-Apps, Web-Erweiterungen und mit `MythicalLTD/Pterodactyl-Desktop` auch eine Desktop-App auf Client-API-Basis — aber **kein Client mit Deploy-/Versionierungs-Workflow**. Das ist das Alleinstellungsmerkmal von Wingman.
+**Marktumfeld:** Für Pterodactyl existieren Mobile-Apps, Web-Erweiterungen und mit `MythicalLTD/Pterodactyl-Desktop` auch eine Desktop-App auf Client-API-Basis — aber **kein Client mit Deploy-/Versionierungs-Workflow**. Das ist das Alleinstellungsmerkmal von Feather.
 
 **Persönliches Ziel des Projekts:** Ein eigenes Produkt betreiben, das andere Leute aktiv nutzen, auf das sie sich verlassen, zu dem Feedback kommt (GitHub Issues) und auf dessen Updates sich Nutzer freuen (Releases + Auto-Updater).
 
@@ -20,7 +20,7 @@ Eine Desktop-App für **Linux und Windows**, die für Pterodactyl das ist, was G
 
 | Entscheidung | Wahl | Begründung |
 |---|---|---|
-| Name | **Wingman** | Anspielung auf den Pterodactyl-Daemon „Wings"; „verlässlicher Helfer". GitHub-Check 07/2026: im Pterodactyl-Umfeld unbelegt |
+| Name | **Feather** | Anspielung auf den Pterodactyl-Daemon „Wings"; „verlässlicher Helfer". GitHub-Check 07/2026: im Pterodactyl-Umfeld unbelegt |
 | Framework | **Tauri 2** (Rust-Kern, Webview-Frontend) | Kleine Binaries, sauber auf Windows + Linux, Rust ideal für Git/Zip/Upload |
 | Frontend | **Svelte 5** + TypeScript + Vite | Kleine Bundles, wenig Boilerplate, eingebaute Reaktivität für Live-Daten |
 | Lizenz | **MIT** | Maximal einfache Adoption, üblich im Ökosystem |
@@ -33,7 +33,7 @@ Eine Desktop-App für **Linux und Windows**, die für Pterodactyl das ist, was G
 | Deploy-Ziel | **Pro Projekt wählbar** | Standard Server-Root, optional Unterordner |
 | Build-Schritt | **Optional pro Projekt** | Textfeld „Befehl vor Deploy", standardmäßig aus |
 | Nach dem Deploy | **Pro Projekt einstellbar** | Neustart oder nur Benachrichtigung |
-| Credentials | **Nur System-Schlüsselbund** | Windows Credential Manager / Secret Service; kein Klartext-Fallback |
+| Credentials | **System-Schlüsselbund**, Datei-Fallback | Windows Credential Manager / Secret Service; ohne Schlüsselbund verschleierte Fallback-Datei (s. README) |
 | Teststrategie | **Mock-Panel im Repo** | Client-API-Subset als eigenes Crate; Kern + CI voll automatisch testbar |
 | Lizenz/Modell | **Komplett Open Source** (GitHub) | Issues, Community, Stars als Motivation |
 | Updates | **Eingebauter Auto-Updater** | Tauri-Updater + GitHub Releases (ab M5, braucht Signatur-Schlüsselpaar) |
@@ -103,7 +103,7 @@ muss per API erneuert werden; Reconnect mit Backoff; ein Socket pro Server.
 3. Auto-Backup anstoßen UND auf Abschluss warten (Backup-API ist asynchron;
    die App pollt den Backup-Status, bis `completed_at` gesetzt ist — robuster
    als das Websocket-Event, weil der Deploy keinen offenen Socket braucht).
-   Eigene Backups heißen "wingman-pre-deploy-<zeitstempel>" und werden rotiert:
+   Eigene Backups heißen "feather-pre-deploy-<zeitstempel>" und werden rotiert:
    ist das Backup-Limit des Servers erreicht, wird das älteste eigene gelöscht;
    bei Limit 0 wird der Schritt mit Hinweis übersprungen. Pro Projekt abschaltbar.
 4. Zip packen — Ausschlüsse laut .deployignore (gitignore-Syntax, ignore-Crate);
@@ -134,7 +134,7 @@ ist der Rettungsanker.
 ### 6.5 Datenmodell (App-Config-Verzeichnis, JSON)
 
 - `panels.json`: Liste (v1: ein Eintrag) `{id, name, base_url}` —
-  der API-Key liegt **nur** im System-Schlüsselbund (Service `wingman`, Key = Panel-id)
+  der API-Key liegt **nur** im System-Schlüsselbund (Service `feather`, Key = Panel-id)
 - `projects.json`: `{id, name, local_path, panel_id, server_uuid, target_dir,
   build_command?, post_deploy: "restart"|"notify", auto_backup}`
 - Pro Projekt: Deploy-Historie mit `{commit_hash, timestamp}` des letzten Deploys
@@ -150,7 +150,7 @@ ist der Rettungsanker.
 - **M1 — Verbindung & Dashboard** ✅: Panel-URL + API-Key (Schlüsselbund), Serverliste, Kacheln mit Status, CPU/RAM
 - **M2 — Server fühlt sich echt an** ✅: Power-Buttons (Kill zweistufig), Websocket → Live-Konsole mit Befehlseingabe + CPU/RAM live, Token-Refresh/Reconnect mit Backoff
 - **M3 — Deploy-Kern** ✅: Projektordner verknüpfen (Ordner-Picker), Zip → Upload → Entpacken → Zip-Cleanup, `.deployignore`, Manifest-Löschung, Zielordner, Verhalten nach Deploy, Desktop-Benachrichtigungen, Fortschritt auf der Kachel
-- **M4 — Versionierung** ✅: git2-Integration (Repo-Init beim Verknüpfen, Auto-Commit vor Deploy), Commit-UI + Historie mit „deployed"-Marker, Rollback (Tree-Archive in Tempdir, Working Tree unberührt), Auto-Backup mit Rotation (nur eigene `wingman-pre-deploy-*`), optionaler Build-Befehl mit Live-Output, Fußleiste „N Commits seit letztem Deploy"
+- **M4 — Versionierung** ✅: git2-Integration (Repo-Init beim Verknüpfen, Auto-Commit vor Deploy), Commit-UI + Historie mit „deployed"-Marker, Rollback (Tree-Archive in Tempdir, Working Tree unberührt), Auto-Backup mit Rotation (nur eigene `feather-pre-deploy-*`), optionaler Build-Befehl mit Live-Output, Fußleiste „N Commits seit letztem Deploy"
 - **M5 — Komfort & Release** ✅: Datei-Browser (navigieren, Ordner anlegen, löschen), Auto-Updater (GitHub Releases + latest.json; Signatur-Schlüsselpaar wird vom Betreiber erzeugt, siehe docs/RELEASING.md), Release-Workflow für Windows (NSIS) + Linux (AppImage, .deb), Ein-Zeilen-Installer für Linux (install.sh)
 
 ---
@@ -171,7 +171,7 @@ ist der Rettungsanker.
 - [x] M4 (Versionierung) — 19.07.2026
 - [x] M3 (Deploy-Kern) — 19.07.2026
 - [x] M2 (Websocket, Power-Aktionen, Konsole) — 19.07.2026
-- [x] Name final festlegen (Wingman, Verfügbarkeit geprüft 07/2026)
+- [x] Name final festlegen (Feather, Verfügbarkeit geprüft 07/2026)
 - [x] Frontend-Framework wählen (Svelte 5)
 - [x] Open-Source-Lizenz wählen (MIT)
 - [x] Repo aufsetzen + M1 (19.07.2026)

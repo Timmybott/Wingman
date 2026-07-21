@@ -42,7 +42,7 @@
 <div class="setup">
   <h2>Connect your panel</h2>
   <p class="muted">
-    Wingman talks to Pterodactyl through the client API. Create an API key in your
+    Feather talks to Pterodactyl through the client API. Create an API key in your
     panel under <strong>Account → API Credentials</strong> — the key is stored in
     your operating system's keychain, never in plain text.
   </p>

@@ -359,7 +359,7 @@ async fn rotates_own_backups_when_the_limit_is_reached() {
     let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
     let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
 
-    // Fill all 3 slots of a1b2c3d4 with Wingman-created backups.
+    // Fill all 3 slots of a1b2c3d4 with Feather-created backups.
     let oldest = client
         .create_backup(SERVER, &format!("{BACKUP_PREFIX}old-1"))
         .await
@@ -381,7 +381,7 @@ async fn rotates_own_backups_when_the_limit_is_reached() {
     assert_eq!(backups.len(), 3, "limit stays respected");
     assert!(
         !backups.iter().any(|b| b.uuid == oldest.uuid),
-        "the oldest Wingman backup was rotated out"
+        "the oldest Feather backup was rotated out"
     );
 }
 

@@ -57,7 +57,7 @@ fn done_files(steps: &[DeployStep]) -> usize {
 async fn initial_import_pulls_server_files_into_empty_folder() {
     let panel = MockPanel::spawn().await;
     let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
-    // Files that already live on the server before Wingman is involved.
+    // Files that already live on the server before Feather is involved.
     client
         .write_file(SERVER, "/server.properties", b"motd=hi".to_vec())
         .await

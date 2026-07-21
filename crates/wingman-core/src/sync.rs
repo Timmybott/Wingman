@@ -4,7 +4,7 @@
 //! - **Initial import**: when a project is linked to a server whose folder is
 //!   still empty, the server's current files are downloaded into it.
 //! - **Multi-device sync**: every deploy writes a small state file
-//!   (`.wingman-state.json`) into the target directory. Other devices poll
+//!   (`.feather-state.json`) into the target directory. Other devices poll
 //!   it; when it announces a newer deploy and the local working tree is
 //!   clean, they pull the server state and update their local folder,
 //!   deploy record and git history to match.
@@ -24,9 +24,9 @@ use std::path::Path;
 use tokio::sync::mpsc;
 
 /// Name of the deploy-state marker inside the target directory.
-pub const STATE_FILE: &str = ".wingman-state.json";
+pub const STATE_FILE: &str = ".feather-state.json";
 
-/// What the last Wingman deploy to this server looked like — written by the
+/// What the last Feather deploy to this server looked like — written by the
 /// deploying device, read by all others.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteState {
@@ -49,7 +49,7 @@ pub enum PullMode {
 }
 
 /// Read the remote state marker; `None` when it is missing or unreadable
-/// (e.g. the server was never deployed to by Wingman).
+/// (e.g. the server was never deployed to by Feather).
 pub async fn read_remote_state(
     client: &PanelClient,
     project: &ProjectConfig,

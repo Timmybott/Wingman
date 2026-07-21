@@ -1,6 +1,6 @@
 [package]
 name = "wingman-core"
-description = "Core logic for Wingman: Pterodactyl client API, configuration, deploy engine"
+description = "Core logic for Feather: Pterodactyl client API, configuration, deploy engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

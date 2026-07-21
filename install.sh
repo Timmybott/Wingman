@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Wingman installer for Linux.
+# Feather installer for Linux.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Timmybott/Wingman/main/install.sh | bash
 #
 # Downloads the latest GitHub release and installs it:
 #   - Debian/Ubuntu (apt available): installs the .deb (integrates with the
-#     system package manager, uninstall via `sudo apt remove wingman`)
+#     system package manager, uninstall via `sudo apt remove feather`)
 #   - everything else: puts the AppImage into ~/.local/bin and adds a
 #     desktop entry
 # Updates after that are handled by the app's built-in updater.
@@ -15,9 +15,9 @@ set -euo pipefail
 REPO="Timmybott/Wingman"
 API="https://api.github.com/repos/$REPO/releases/latest"
 
-say() { printf '\033[1;35m[wingman]\033[0m %s\n' "$*"; }
+say() { printf '\033[1;35m[feather]\033[0m %s\n' "$*"; }
 fail() {
-    printf '\033[1;31m[wingman]\033[0m %s\n' "$*" >&2
+    printf '\033[1;31m[feather]\033[0m %s\n' "$*" >&2
     exit 1
 }
 
@@ -40,33 +40,33 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 if command -v apt-get >/dev/null 2>&1 && [ -n "$deb_url" ]; then
     say "Downloading $(basename "$deb_url")…"
-    curl -fL --progress-bar -o "$tmpdir/wingman.deb" "$deb_url"
+    curl -fL --progress-bar -o "$tmpdir/feather.deb" "$deb_url"
     say "Installing via apt (this may ask for your sudo password)…"
-    sudo apt-get install -y "$tmpdir/wingman.deb"
-    say "Done! Find Wingman in your app menu or run: wingman"
+    sudo apt-get install -y "$tmpdir/feather.deb"
+    say "Done! Find Feather in your app menu or run: feather"
 elif [ -n "$appimage_url" ]; then
     say "Downloading $(basename "$appimage_url")…"
     bin_dir="$HOME/.local/bin"
     mkdir -p "$bin_dir"
-    curl -fL --progress-bar -o "$bin_dir/wingman" "$appimage_url"
-    chmod +x "$bin_dir/wingman"
+    curl -fL --progress-bar -o "$bin_dir/feather" "$appimage_url"
+    chmod +x "$bin_dir/feather"
 
     app_dir="$HOME/.local/share/applications"
     mkdir -p "$app_dir"
-    cat >"$app_dir/wingman.desktop" <<DESKTOP
+    cat >"$app_dir/feather.desktop" <<DESKTOP
 [Desktop Entry]
-Name=Wingman
+Name=Feather
 Comment=Desktop client for Pterodactyl with one-click deploys
-Exec=$bin_dir/wingman
+Exec=$bin_dir/feather
 Terminal=false
 Type=Application
 Categories=Development;Utility;
 DESKTOP
 
-    say "Installed to $bin_dir/wingman (AppImage) with a desktop entry."
+    say "Installed to $bin_dir/feather (AppImage) with a desktop entry."
     case ":$PATH:" in
-    *":$bin_dir:"*) say "Done! Run: wingman" ;;
-    *) say "Done! Note: $bin_dir is not on your PATH — start Wingman from your app menu." ;;
+    *":$bin_dir:"*) say "Done! Run: feather" ;;
+    *) say "Done! Note: $bin_dir is not on your PATH — start Feather from your app menu." ;;
     esac
 else
     fail "no suitable asset (.deb/.AppImage) found in the latest release"

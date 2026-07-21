@@ -1,4 +1,4 @@
-//! Core logic for Wingman, the desktop client for Pterodactyl.
+//! Core logic for Feather, the desktop client for Pterodactyl.
 //!
 //! This crate is intentionally free of any Tauri dependency so it can be
 //! developed and tested headless (CI, cloud environments). The Tauri shell in

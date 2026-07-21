@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to Wingman are documented here. The format follows
+All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.6.0] — 2026-07-19
+## [1.2.0] — 2026-07-19
 
 ### Added
 
@@ -12,7 +12,7 @@ All notable changes to Wingman are documented here. The format follows
   folder now downloads the server's current files into it (and creates the
   first git checkpoint automatically).
 - **Multi-device sync** — every deploy leaves a small state marker
-  (`.wingman-state.json`) on the server. Other devices poll it and, when a
+  (`.feather-state.json`) on the server. Other devices poll it and, when a
   newer deploy exists and their working tree is clean, automatically pull
   the server state into their local folder. Local uncommitted changes are
   never overwritten — you get a console note instead.
@@ -23,6 +23,8 @@ All notable changes to Wingman are documented here. The format follows
 
 ### Changed
 
+- **Renamed to Feather** — the app is now called Feather (same logo). The
+  GitHub repository keeps its `Wingman` name for now.
 - Panel responses with `null` resource limits (seen on real panels) are
   handled everywhere.
 - API keys: if the OS keychain is unavailable (e.g. Linux without a Secret
@@ -54,7 +56,7 @@ First feature-complete version — everything from the v1 specification.
 - **Versioning** — every project is a real git repository (auto-initialized
   and auto-committed on deploy), commit UI and history with one-click
   rollback that never touches the working tree, automatic pre-deploy
-  backups with rotation (only Wingman's own backups are ever rotated), and
+  backups with rotation (only Feather's own backups are ever rotated), and
   an optional build command with streamed output.
 - **File browser** — navigate server files, create folders, delete files
   and folders.
@@ -63,5 +65,5 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
-[0.6.0]: https://github.com/Timmybott/Wingman/releases/tag/v0.6.0
+[1.2.0]: https://github.com/Timmybott/Wingman/releases/tag/v1.2.0
 [0.5.0]: https://github.com/Timmybott/Wingman/releases/tag/v0.5.0

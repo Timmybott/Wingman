@@ -2,13 +2,13 @@
   let { size = 26 }: { size?: number } = $props();
 </script>
 
-<!-- The Wingman wing — same artwork as the app icon (see logo.svg). -->
+<!-- The Feather wing — same artwork as the app icon (see logo.svg). -->
 <svg
   width={size}
   height={size}
   viewBox="0 0 64 64"
   role="img"
-  aria-label="Wingman logo"
+  aria-label="Feather logo"
 >
   <defs>
     <linearGradient id="wingman-bg" x1="0" y1="0" x2="1" y2="1">

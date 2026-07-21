@@ -1,5 +1,5 @@
 name: Feature request
-description: An idea that would make Wingman better.
+description: An idea that would make Feather better.
 labels: ["enhancement"]
 body:
   - type: textarea
@@ -13,6 +13,6 @@ body:
     id: solution
     attributes:
       label: How could it work?
-      description: Your idea of how Wingman should handle it. Rough sketches welcome.
+      description: Your idea of how Feather should handle it. Rough sketches welcome.
     validations:
       required: false
