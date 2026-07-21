@@ -4,6 +4,12 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] — 2026-07-19
+
+### Changed
+
+- Version set to 2.0.0.
+
 ## [1.2.1] — 2026-07-19
 
 ### Changed
@@ -71,6 +77,7 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.0.0]: https://github.com/Timmybott/Feather/releases/tag/v2.0.0
 [1.2.1]: https://github.com/Timmybott/Feather/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Timmybott/Feather/releases/tag/v1.2.0
 [0.5.0]: https://github.com/Timmybott/Feather/releases/tag/v0.5.0
