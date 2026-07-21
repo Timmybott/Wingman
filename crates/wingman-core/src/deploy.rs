@@ -1,4 +1,4 @@
-//! The deploy engine — Wingman's core feature.
+//! The deploy engine — Feather's core feature.
 //!
 //! Full flow (spec 6.3): auto-commit the project (checkpoint for rollback) →
 //! optional build command → optional pre-deploy backup with rotation → scan
@@ -26,9 +26,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::sync::mpsc;
 
-/// Backups created by Wingman carry this prefix; rotation only ever deletes
+/// Backups created by Feather carry this prefix; rotation only ever deletes
 /// backups matching it — user-created backups are never touched.
-pub const BACKUP_PREFIX: &str = "wingman-pre-deploy-";
+pub const BACKUP_PREFIX: &str = "feather-pre-deploy-";
 
 const BACKUP_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const BACKUP_POLL_ATTEMPTS: usize = 1200; // × 500 ms = 10 minutes
@@ -259,7 +259,7 @@ async fn run_pipeline(
         }
     }
 
-    let remote_name = format!(".wingman-deploy-{}.zip", now_secs());
+    let remote_name = format!(".feather-deploy-{}.zip", now_secs());
 
     let _ = tx.send(DeployStep::Uploading { percent: 0 }).await;
     let signed_url = client.upload_url(&project.server_identifier).await?;
@@ -396,7 +396,7 @@ async fn forward_lines<R: AsyncRead + Unpin>(reader: R, tx: mpsc::Sender<DeployS
     }
 }
 
-/// Take a pre-deploy backup, rotating Wingman's own backups when the server's
+/// Take a pre-deploy backup, rotating Feather's own backups when the server's
 /// backup limit is reached. Foreign backups are never deleted — in that case
 /// (or with a limit of 0) the step is skipped with a note and the deploy
 /// continues: a missing backup should not block shipping.
@@ -430,7 +430,7 @@ async fn ensure_backup(
                     .send(DeployStep::BackupSkipped {
                         reason: format!(
                             "backup limit ({limit}) reached and none of the backups were \
-                             created by Wingman — not touching foreign backups"
+                             created by Feather — not touching foreign backups"
                         ),
                     })
                     .await;

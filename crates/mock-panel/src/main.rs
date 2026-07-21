@@ -1,5 +1,5 @@
 //! Standalone mock panel for local frontend development:
-//! `cargo run -p mock-panel` and point Wingman at the printed URL.
+//! `cargo run -p mock-panel` and point Feather at the printed URL.
 
 use mock_panel::{MockPanel, MockPanelOptions, API_KEY};
 

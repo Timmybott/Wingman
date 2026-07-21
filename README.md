@@ -1,14 +1,14 @@
-# Wingman
+# Feather
 
 **A desktop client for [Pterodactyl](https://pterodactyl.io) with a one-click deploy workflow — think GitHub Desktop, but for your game servers.**
 
-> ⚠️ Wingman is young software, but feature-complete for v1: all five milestones (panel connection, live servers, one-click deploys, git-backed versioning with rollback, file browser + auto-updater) are implemented. The name is a nod to Pterodactyl's daemon, [Wings](https://github.com/pterodactyl/wings).
+> ⚠️ Feather is young software, but feature-complete for v1: all five milestones (panel connection, live servers, one-click deploys, git-backed versioning with rollback, file browser + auto-updater) are implemented. The name plays on Pterodactyl's flight theme — its daemon is called [Wings](https://github.com/pterodactyl/wings).
 
 ## Installation
 
 > The first public release is in preparation — the buttons below go live with it.
 
-**Windows:** Download `Wingman_x.y.z_x64-setup.exe` from the
+**Windows:** Download `Feather_x.y.z_x64-setup.exe` from the
 [latest release](https://github.com/Timmybott/Wingman/releases/latest) and run it.
 
 **Linux:** One line — installs the `.deb` on Debian/Ubuntu, the AppImage everywhere else:
@@ -17,7 +17,7 @@
 curl -fsSL https://raw.githubusercontent.com/Timmybott/Wingman/main/install.sh | bash
 ```
 
-Once installed, Wingman keeps itself up to date through its built-in updater.
+Once installed, Feather keeps itself up to date through its built-in updater.
 
 ## What it does (and will do)
 
@@ -26,7 +26,7 @@ Pick a local project folder, keep versions as git commits, and push them to your
 - ✅ **M1 — Connection & dashboard**: connect a panel with a client API key (stored in the OS keychain), see your servers as tiles with live status, CPU and RAM
 - ✅ **M2 — Live servers**: power actions (start/stop/restart/kill), streamed console with command input, live stats over the Wings websocket (token refresh + auto-reconnect included)
 - ✅ **M3 — Deploy**: link a project folder and deploy it with one click — zip → upload → extract via the panel's file API, `.deployignore` (gitignore syntax), stale files deleted via manifest diff, configurable target folder, post-deploy restart or desktop notification, live progress on the server tile
-- ✅ **M4 — Versioning**: every project is a real git repository (auto-initialized, auto-committed on deploy), commit UI and history with one-click rollback that never touches your working tree, automatic pre-deploy backups with rotation (Wingman never deletes backups it didn't create), optional build command with streamed output
+- ✅ **M4 — Versioning**: every project is a real git repository (auto-initialized, auto-committed on deploy), commit UI and history with one-click rollback that never touches your working tree, automatic pre-deploy backups with rotation (Feather never deletes backups it didn't create), optional build command with streamed output
 - ✅ **M5 — Comfort & release**: server file browser (navigate, create folders, delete), built-in auto-updater fed by GitHub releases, release pipeline for Windows (NSIS) + Linux (deb/AppImage) and a one-line Linux installer
 
 ## Development
@@ -66,7 +66,7 @@ npm test          # vitest
 
 ## Multi-device sync
 
-Every deploy writes a small state marker to the server. Other Wingman
+Every deploy writes a small state marker to the server. Other Feather
 installations connected to the same panel poll it and automatically pull new
 deploys into their local project folder — as long as their working tree is
 clean. Local uncommitted changes are never overwritten. Linking a project to
@@ -77,7 +77,7 @@ a server with an empty local folder imports the server's current files first.
 API keys are stored in the operating system's keychain (Windows Credential
 Manager / Secret Service on Linux). If no keychain is available — for example
 a minimal Linux setup without GNOME Keyring or KWallet — the key falls back
-to an obfuscated (not encrypted) file in Wingman's config directory so the
+to an obfuscated (not encrypted) file in Feather's config directory so the
 app stays usable; install a Secret Service if you want keychain-grade
 protection.
 

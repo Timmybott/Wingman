@@ -1,13 +1,13 @@
 [package]
-name = "wingman"
-description = "Wingman — desktop client for Pterodactyl with a one-click deploy workflow"
+name = "feather"
+description = "Feather — desktop client for Pterodactyl with a one-click deploy workflow"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [lib]
-name = "wingman_lib"
+name = "feather_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

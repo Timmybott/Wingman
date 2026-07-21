@@ -32,7 +32,7 @@
   <div class="rocket">🚀</div>
   <h2>Update available</h2>
   <p>
-    <strong>Wingman {update.version}</strong> is ready to install.
+    <strong>Feather {update.version}</strong> is ready to install.
     The app restarts automatically afterwards.
   </p>
   {#if update.body}

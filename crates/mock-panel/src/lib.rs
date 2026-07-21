@@ -1,4 +1,4 @@
-//! In-process mock of the Pterodactyl client API subset Wingman uses.
+//! In-process mock of the Pterodactyl client API subset Feather uses.
 //!
 //! REST: `GET /api/client` (paginated server list, `per_page` = 2 so the
 //! pagination path is always exercised), `GET .../resources`,
@@ -976,7 +976,7 @@ async fn compress_files(
     let seq = app
         .backup_seq
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let name = format!("wingman-archive-{seq}.tar.gz");
+    let name = format!("feather-archive-{seq}.tar.gz");
     app.put_file(&id, join_remote(root, &name), data);
     Json(json!({
         "object": "file_object",

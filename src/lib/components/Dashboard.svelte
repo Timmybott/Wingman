@@ -93,7 +93,7 @@
         break;
       case "disconnected":
         live[id] = { ...current, connected: false };
-        appendConsole(id, `[wingman] connection lost: ${event.data.reason}`);
+        appendConsole(id, `[feather] connection lost: ${event.data.reason}`);
         break;
     }
   }
@@ -105,7 +105,7 @@
         appendConsole(project.server_identifier, `[build] ${step.line}`);
         return;
       case "backup_skipped":
-        appendConsole(project.server_identifier, `[wingman] backup skipped: ${step.reason}`);
+        appendConsole(project.server_identifier, `[feather] backup skipped: ${step.reason}`);
         return;
       case "done":
         appStatus.lastDeploy = { projectName: project.name, at: new Date(), files: step.files };
@@ -204,7 +204,7 @@
     try {
       await setPower(id, signal);
     } catch (e) {
-      appendConsole(id, `[wingman] power "${signal}" failed: ${e}`);
+      appendConsole(id, `[feather] power "${signal}" failed: ${e}`);
     }
   }
 
@@ -247,7 +247,7 @@
             dirtyNotified.add(project.id);
             appendConsole(
               project.server_identifier,
-              "[wingman] a newer deploy from another device exists — commit or deploy your local changes to sync",
+              "[feather] a newer deploy from another device exists — commit or deploy your local changes to sync",
             );
           }
           continue;
@@ -255,7 +255,7 @@
         dirtyNotified.delete(project.id);
         appendConsole(
           project.server_identifier,
-          "[wingman] newer deploy from another device detected — syncing local folder",
+          "[feather] newer deploy from another device detected — syncing local folder",
         );
         await pull(project, "sync");
       } catch {
@@ -289,7 +289,7 @@
         // skips on its own when the folder already has content.
         appendConsole(
           saved.server_identifier,
-          "[wingman] importing current server files into the linked folder…",
+          "[feather] importing current server files into the linked folder…",
         );
         await pull(saved, "import");
       }
