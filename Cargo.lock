@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "feather"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "keyring",
  "serde",
@@ -2351,7 +2351,7 @@ dependencies = [
 
 [[package]]
 name = "mock-panel"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "axum",
  "flate2",
@@ -5792,7 +5792,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "wingman-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "flate2",
  "futures-util",
