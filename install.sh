@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Feather installer for Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Timmybott/Wingman/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Timmybott/Feather/main/install.sh | bash
 #
 # Downloads the latest GitHub release and installs it:
 #   - Debian/Ubuntu (apt available): installs the .deb (integrates with the
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REPO="Timmybott/Wingman"
+REPO="Timmybott/Feather"
 API="https://api.github.com/repos/$REPO/releases/latest"
 
 say() { printf '\033[1;35m[feather]\033[0m %s\n' "$*"; }

@@ -9,12 +9,12 @@
 > The first public release is in preparation — the buttons below go live with it.
 
 **Windows:** Download `Feather_x.y.z_x64-setup.exe` from the
-[latest release](https://github.com/Timmybott/Wingman/releases/latest) and run it.
+[latest release](https://github.com/Timmybott/Feather/releases/latest) and run it.
 
 **Linux:** One line — installs the `.deb` on Debian/Ubuntu, the AppImage everywhere else:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Timmybott/Wingman/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Timmybott/Feather/main/install.sh | bash
 ```
 
 Once installed, Feather keeps itself up to date through its built-in updater.

@@ -6,10 +6,10 @@ members = ["crates/wingman-core", "crates/mock-panel", "src-tauri"]
 default-members = ["crates/wingman-core", "crates/mock-panel"]
 
 [workspace.package]
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/timmybott/wingman"
+repository = "https://github.com/Timmybott/Feather"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
