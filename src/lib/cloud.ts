@@ -626,7 +626,7 @@ export async function addComment(issueId: string, body: string): Promise<void> {
 // bundle — the "current Deploy". Releasing that bundle ships its commits to the
 // server and opens a fresh one. The database holds only metadata; the file
 // snapshots live on the storage backend, reached through the feather-storage
-// Edge Function (see putSnapshot/getSnapshot below).
+// Edge Function (the byte transfer runs in the Rust core).
 
 export type BundleStatus = "pending" | "released" | "failed";
 
@@ -781,9 +781,9 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
 //
 // Commit/rollback snapshots are stored as files on Feather's storage server,
 // reached only through the Edge Function so its API key stays server-side. The
-// function derives the path from the ids; we only pass ids and the bytes.
-
-export type SnapshotKind = "commit" | "rollback";
+// actual byte transfer runs in the Rust core (upload_commit_snapshot /
+// rollback_to_snapshot) over reqwest — no browser CORS involved — passing the
+// values below so the function can authorize the caller and derive the path.
 
 export const STORAGE_ENDPOINT = `${SUPABASE_URL}/functions/v1/feather-storage`;
 export { SUPABASE_ANON_KEY as anonKey };
@@ -796,76 +796,21 @@ export async function sessionToken(): Promise<string> {
   return token;
 }
 
-async function storageHeaders(): Promise<Record<string, string>> {
-  return { Authorization: `Bearer ${await sessionToken()}`, apikey: SUPABASE_ANON_KEY };
-}
-
-function storageUrl(
-  action: string,
-  projectId: string,
-  commitId: string | null,
-  kind: SnapshotKind,
-): string {
-  const params = new URLSearchParams({ action, project_id: projectId, kind });
-  if (commitId) params.set("commit_id", commitId);
-  return `${STORAGE_ENDPOINT}?${params.toString()}`;
-}
-
-/** Upload a commit/rollback snapshot (a zip) to the storage backend. */
-export async function putSnapshot(
-  projectId: string,
-  commitId: string,
-  kind: SnapshotKind,
-  bytes: ArrayBuffer | Uint8Array,
-): Promise<void> {
-  const res = await fetch(storageUrl("put", projectId, commitId, kind), {
-    method: "POST",
-    headers: { ...(await storageHeaders()), "content-type": "application/octet-stream" },
-    // Both ArrayBuffer and Uint8Array are valid fetch bodies at runtime; the
-    // cast sidesteps the DOM lib's ArrayBufferLike/SharedArrayBuffer generics.
-    body: bytes as BodyInit,
-  });
-  if (!res.ok) throw new Error(`snapshot upload failed (${res.status})`);
-}
-
-/** Download a snapshot (a zip) from the storage backend. */
-export async function getSnapshot(
-  projectId: string,
-  commitId: string,
-  kind: SnapshotKind,
-): Promise<ArrayBuffer> {
-  const res = await fetch(storageUrl("get", projectId, commitId, kind), {
-    headers: await storageHeaders(),
-  });
-  if (!res.ok) throw new Error(`snapshot download failed (${res.status})`);
-  return await res.arrayBuffer();
-}
-
-/** Delete a snapshot from the storage backend. */
-export async function deleteSnapshot(
-  projectId: string,
-  commitId: string,
-  kind: SnapshotKind,
-): Promise<void> {
-  const res = await fetch(storageUrl("delete", projectId, commitId, kind), {
-    method: "POST",
-    headers: await storageHeaders(),
-  });
-  if (!res.ok) throw new Error(`snapshot delete failed (${res.status})`);
-}
-
 /**
- * Whether the storage backend is configured. The function returns 503 until
- * its key is set, so anything else (even a 400 for the empty probe) means it's
- * live. Best-effort: any network error reports unavailable.
+ * Whether the storage backend is configured. The function returns 503 until its
+ * key is set. This probe is a browser fetch, which a strict `verify_jwt`
+ * preflight can block; since the real commit/deploy/rollback go through Rust
+ * (which is unaffected), we only treat a definitive 503 as "unavailable" and
+ * stay optimistic otherwise — a genuinely missing backend then surfaces a clear
+ * error on the actual operation rather than silently hiding the UI.
  */
 export async function storageAvailable(): Promise<boolean> {
   try {
     const res = await fetch(`${STORAGE_ENDPOINT}?action=ping`, {
-      headers: await storageHeaders(),
+      headers: { Authorization: `Bearer ${await sessionToken()}`, apikey: SUPABASE_ANON_KEY },
     });
     return res.status !== 503;
   } catch {
-    return false;
+    return true;
   }
 }
