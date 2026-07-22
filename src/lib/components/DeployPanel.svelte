@@ -16,6 +16,7 @@
     recordDeploy,
     releaseBundle,
     sessionToken,
+    setServerManifest,
     STORAGE_ENDPOINT,
     type CloudProject,
     type DeployEntry,
@@ -25,7 +26,17 @@
   import CloudCommits from "./CloudCommits.svelte";
   import ProjectHistory from "./ProjectHistory.svelte";
 
-  let { project, localPath }: { project: CloudProject; localPath: string | null } = $props();
+  let {
+    project,
+    localPath,
+    autoImport = false,
+    onImported,
+  }: {
+    project: CloudProject;
+    localPath: string | null;
+    autoImport?: boolean;
+    onImported?: () => void;
+  } = $props();
 
   const config = $derived<ProjectConfig | null>(
     localPath
@@ -45,6 +56,9 @@
 
   let step = $state<DeployStep | null>(null);
   let showHistory = $state(false);
+  // When the history drawer is opened from a Deploy-history row, the row's
+  // timestamp so the drawer can jump straight to that deploy.
+  let focusDeployAt = $state<string | null>(null);
   let error = $state<string | null>(null);
   let backupWarning = $state<string | null>(null);
   let deploys = $state<DeployEntry[]>([]);
@@ -53,6 +67,9 @@
   let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
+  // An import is running; on completion the local folder mirrors the server, so
+  // we record it as the diff baseline.
+  let pullPending = false;
 
   const running = $derived(step !== null && step.step !== "done" && step.step !== "failed");
 
@@ -78,7 +95,15 @@
   let unlisten: UnlistenFn | undefined;
   onMount(() => {
     void loadDeploys();
-    onDeployEvent(project.id, handleStep).then((u) => (unlisten = u));
+    onDeployEvent(project.id, handleStep).then((u) => {
+      unlisten = u;
+      // Auto-import the server's files right after linking an empty folder, so
+      // the diff is meaningful immediately. Listen first, then start.
+      if (autoImport && config) {
+        onImported?.();
+        void importFiles();
+      }
+    });
     return () => unlisten?.();
   });
 
@@ -104,6 +129,23 @@
       const kind = currentKind;
       currentKind = null;
       if (kind) void record(kind, s);
+      // After importing the server's files, the local folder mirrors the
+      // server — record that as the diff baseline so the Deploy tab doesn't
+      // show every file as changed.
+      if (s.step === "done" && pullPending) void setImportBaseline();
+      pullPending = false;
+    }
+  }
+
+  /** After a successful import, the local manifest == the server state. */
+  async function setImportBaseline() {
+    if (!config) return;
+    try {
+      const manifest = await projectManifest(config);
+      await setServerManifest(project.id, manifest);
+      cloudRefresh += 1;
+    } catch (e) {
+      console.error("could not set server baseline:", e);
     }
   }
 
@@ -180,11 +222,13 @@
     if (!config) return;
     error = null;
     currentKind = null; // imports are not recorded as deploys
+    pullPending = true; // …but they do reset the diff baseline
     step = { step: "downloading", percent: 0 };
     try {
       await pullProject(config, "import");
     } catch (e) {
       step = { step: "failed", message: String(e) };
+      pullPending = false;
     }
   }
 
@@ -204,6 +248,12 @@
       currentKind = null;
       void record("rollback", failed);
     }
+  }
+
+  /** Open the shared history drawer focused on the clicked deploy. */
+  function openDeployDetail(d: DeployEntry) {
+    focusDeployAt = d.created_at;
+    showHistory = true;
   }
 
   function when(iso: string): string {
@@ -272,27 +322,38 @@
     <ul class="timeline">
       {#each deploys as d (d.id)}
         <li>
-          <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
-          <div class="d-main">
-            <span class="d-title">
-              <span class="d-kind">{d.kind}</span>
-              {#if d.commit_summary}<span class="d-summary">{d.commit_summary}</span>
-              {:else if d.status === "failed" && d.message}<span class="d-summary fail">{d.message}</span>{/if}
-            </span>
-            <span class="d-meta muted">
-              {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
-              {#if d.files_count !== null}{d.files_count} files · {/if}
-              {d.display_name?.trim() || d.username || "someone"} · {when(d.created_at)}
-            </span>
-          </div>
+          <button class="d-row" onclick={() => openDeployDetail(d)} title="Open this deploy's history">
+            <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
+            <div class="d-main">
+              <span class="d-title">
+                <span class="d-kind">{d.kind}</span>
+                {#if d.commit_summary}<span class="d-summary">{d.commit_summary}</span>
+                {:else if d.status === "failed" && d.message}<span class="d-summary fail">{d.message}</span>{/if}
+              </span>
+              <span class="d-meta muted">
+                {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
+                {#if d.files_count !== null}{d.files_count} files · {/if}
+                {d.display_name?.trim() || d.username || "someone"} · {when(d.created_at)}
+              </span>
+            </div>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
         </li>
       {/each}
     </ul>
   {/if}
 </div>
 
-{#if showHistory && config}
-  <ProjectHistory {project} {onRollback} onClose={() => (showHistory = false)} />
+{#if showHistory}
+  <ProjectHistory
+    {project}
+    {onRollback}
+    {focusDeployAt}
+    onClose={() => {
+      showHistory = false;
+      focusDeployAt = null;
+    }}
+  />
 {/if}
 
 <style>
@@ -364,14 +425,31 @@
     gap: 8px;
   }
 
-  .timeline li {
+  .d-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
+    width: 100%;
+    text-align: left;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
+  }
+
+  .d-row:hover {
+    border-color: var(--accent);
+  }
+
+  .chev {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 18px;
+    color: var(--text-muted);
+  }
+
+  .d-row:hover .chev {
+    color: var(--accent);
   }
 
   .badge {

@@ -161,6 +161,7 @@ export interface CloudProject {
   team_id: string;
   name: string;
   description: string;
+  logo_url: string | null;
   panel_id: string | null;
   server_identifier: string | null;
   target_dir: string;
@@ -172,7 +173,7 @@ export interface CloudProject {
 }
 
 const PROJECT_COLUMNS =
-  "id, team_id, name, description, panel_id, server_identifier, target_dir, build_command, post_deploy, auto_backup, created_by, created_at";
+  "id, team_id, name, description, logo_url, panel_id, server_identifier, target_dir, build_command, post_deploy, auto_backup, created_by, created_at";
 
 export async function listProjects(teamId: string): Promise<CloudProject[]> {
   const { data, error } = await supabase
@@ -227,6 +228,7 @@ export async function updateProject(
       CloudProject,
       | "name"
       | "description"
+      | "logo_url"
       | "panel_id"
       | "server_identifier"
       | "target_dir"
@@ -386,6 +388,32 @@ export async function updateMyProfile(fields: {
     .single();
   if (error) throw new Error(error.message);
   return data as UserProfile;
+}
+
+/**
+ * Teams a user belongs to that the viewer can see (Row-Level Security limits
+ * this to teams the viewer is also on — you see shared teams).
+ */
+export async function listUserTeams(userId: string): Promise<Team[]> {
+  const { data, error } = await supabase
+    .from("team_members")
+    .select(`teams(${TEAM_COLUMNS})`)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .map((row) => (row as { teams?: unknown }).teams as Team | null)
+    .filter((t): t is Team => t !== null);
+}
+
+/** Projects a user created that the viewer can see (RLS: shared teams only). */
+export async function listUserProjects(userId: string): Promise<CloudProject[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_COLUMNS)
+    .eq("created_by", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CloudProject[];
 }
 
 // --- Deploy history --------------------------------------------------------
@@ -710,11 +738,21 @@ export async function releaseBundle(
   return bundleFrom(data);
 }
 
-/** The current server-state manifest (newest released bundle's deployed set). */
+/** The current server-state manifest (the project baseline). */
 export async function serverManifest(projectId: string): Promise<Manifest> {
   const { data, error } = await supabase.rpc("server_manifest", { p_project: projectId });
   if (error) throw new Error(error.message);
   return (data ?? {}) as Manifest;
+}
+
+/** Set the project's server-state baseline (called after importing the server's
+ *  files, so the "changes since last deploy" diff is correct immediately). */
+export async function setServerManifest(projectId: string, manifest: Manifest): Promise<void> {
+  const { error } = await supabase.rpc("set_server_manifest", {
+    p_project: projectId,
+    p_manifest: manifest,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** A commit's stored content manifest ({} if it wasn't recorded). */

@@ -27,24 +27,65 @@
     onChanged: () => void;
   } = $props();
 
-  let bundle = $state<DeployBundle | null>(null);
-  let bundleCommits = $state<CloudCommit[]>([]);
+  let bundles = $state<DeployBundle[]>([]);
+  let allCommits = $state<CloudCommit[]>([]);
   // Local echo of the pinned commit for instant feedback after assigning.
   // svelte-ignore state_referenced_locally
   let commitId = $state<string | null>(issue.commit_id);
   let assigning = $state(false);
 
-  const linkedCommit = $derived(bundleCommits.find((c) => c.id === commitId) ?? null);
+  const linkedCommit = $derived(allCommits.find((c) => c.id === commitId) ?? null);
+
+  // Chronological deploy number (#1 = oldest) for each bundle id, so commits
+  // can be labelled by the deploy they belong to.
+  const deployNo = $derived.by(() => {
+    const map = new Map<string, number>();
+    const total = bundles.length;
+    bundles.forEach((b, i) => map.set(b.id, total - i));
+    return map;
+  });
+
+  const filedBundle = $derived(
+    issue.bundle_id ? (bundles.find((b) => b.id === issue.bundle_id) ?? null) : null,
+  );
+
+  function bundleLabel(b: DeployBundle): string {
+    const no = deployNo.get(b.id);
+    const tag = no ? `Deploy #${no}` : "Deploy";
+    if (b.status === "released") {
+      const when = b.released_at ? new Date(b.released_at).toLocaleDateString() : "";
+      return `${tag} · deployed ${when}`.trim();
+    }
+    if (b.status === "failed") return `${tag} · failed`;
+    return `${tag} · current (not deployed yet)`;
+  }
+
+  // Every project commit, grouped by the deploy it belongs to (newest deploy
+  // first). This lets an issue be pinned to the commit that fixed it no matter
+  // which deploy cycle that was — including issues already closed.
+  const commitGroups = $derived.by(() => {
+    const byBundle = new Map<string, CloudCommit[]>();
+    for (const c of allCommits) {
+      const key = c.bundle_id ?? "none";
+      const list = byBundle.get(key);
+      if (list) list.push(c);
+      else byBundle.set(key, [c]);
+    }
+    const groups: { key: string; label: string; commits: CloudCommit[] }[] = [];
+    for (const b of bundles) {
+      const list = byBundle.get(b.id);
+      if (list && list.length > 0) groups.push({ key: b.id, label: bundleLabel(b), commits: list });
+    }
+    const orphan = byBundle.get("none");
+    if (orphan && orphan.length > 0) groups.push({ key: "none", label: "No deploy", commits: orphan });
+    return groups;
+  });
 
   async function loadLinks() {
-    if (!issue.bundle_id) return;
     try {
-      const [bundles, commits] = await Promise.all([
-        listBundles(projectId),
-        listCommits(projectId, issue.bundle_id),
-      ]);
-      bundle = bundles.find((b) => b.id === issue.bundle_id) ?? null;
-      bundleCommits = commits;
+      const [b, c] = await Promise.all([listBundles(projectId), listCommits(projectId)]);
+      bundles = b;
+      allCommits = c;
     } catch {
       // linkage is a nicety — never block the thread
     }
@@ -63,13 +104,6 @@
     } finally {
       assigning = false;
     }
-  }
-
-  function deployLabel(b: DeployBundle): string {
-    if (b.status === "released") {
-      return `deployed ${b.released_at ? new Date(b.released_at).toLocaleDateString() : ""}`.trim();
-    }
-    return "not deployed yet";
   }
 
   // Mounted fresh per issue (the list unmounts this on "back"), so seeding the
@@ -155,29 +189,41 @@
 
   {#if error}<p class="error">{error}</p>{/if}
 
-  {#if issue.bundle_id}
-    <div class="link-box">
+  <div class="link-box">
+    {#if filedBundle}
       <div class="link-row">
-        <span class="l-label muted">Deploy</span>
-        <span>Filed against the current Deploy{#if bundle} · <span class="muted">{deployLabel(bundle)}</span>{/if}</span>
+        <span class="l-label muted">Filed</span>
+        <span>Against {bundleLabel(filedBundle)}</span>
       </div>
-      <div class="link-row">
-        <span class="l-label muted">Fixed in</span>
-        {#if bundleCommits.length > 0}
-          <select value={commitId ?? ""} onchange={assign} disabled={assigning}>
-            <option value="">— not linked to a commit —</option>
-            {#each bundleCommits as c (c.id)}
-              <option value={c.id}>{c.message}</option>
-            {/each}
-          </select>
-        {:else if linkedCommit}
-          <span>{linkedCommit.message}</span>
-        {:else}
-          <span class="muted">no commits in this Deploy yet</span>
-        {/if}
-      </div>
+    {/if}
+    <div class="link-row">
+      <span class="l-label muted">Fixed in</span>
+      {#if allCommits.length > 0}
+        <select value={commitId ?? ""} onchange={assign} disabled={assigning}>
+          <option value="">— not linked to a commit —</option>
+          {#each commitGroups as g (g.key)}
+            <optgroup label={g.label}>
+              {#each g.commits as c (c.id)}
+                <option value={c.id}>{c.message}</option>
+              {/each}
+            </optgroup>
+          {/each}
+        </select>
+      {:else}
+        <span class="muted">no commits in this project yet</span>
+      {/if}
     </div>
-  {/if}
+    {#if linkedCommit}
+      <div class="link-row">
+        <span class="l-label muted">Pinned</span>
+        <span class="pinned">
+          ✓ {linkedCommit.message}{#if linkedCommit.bundle_id && deployNo.get(linkedCommit.bundle_id)}
+            <span class="muted"> · Deploy #{deployNo.get(linkedCommit.bundle_id)}</span>
+          {/if}
+        </span>
+      </div>
+    {/if}
+  </div>
 
   <article class="comment original">
     <div class="c-head">
@@ -299,6 +345,11 @@
   .link-row select {
     flex: 1;
     min-width: 180px;
+  }
+
+  .pinned {
+    color: #34d399;
+    font-weight: 600;
   }
 
   .comment {

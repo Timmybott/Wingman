@@ -13,10 +13,12 @@
     server,
     live,
     project = null,
+    linkedProject = null,
     deploy = null,
     opsOnly = false,
     onPower,
     onOpenConsole,
+    onOpenProject,
     onDeploy,
     onConfigureProject,
     onOpenHistory,
@@ -25,12 +27,15 @@
     server: Server;
     live: LiveState;
     project?: ProjectConfig | null;
+    /** The Feather project (if any) that imported this server — Panels tab. */
+    linkedProject?: { id: string; name: string } | null;
     deploy?: DeployStep | null;
     /** Panels tab: show only live-server ops (power + console), no project/
      *  deploy/history/files — those live on the project in the Projects tab. */
     opsOnly?: boolean;
     onPower: (signal: PowerSignal) => Promise<void>;
     onOpenConsole: () => void;
+    onOpenProject?: (projectId: string) => void;
     onDeploy?: () => void;
     onConfigureProject?: () => void;
     onOpenHistory?: () => void;
@@ -90,6 +95,16 @@
       ? memoryLimit > 0
         ? `${formatBytes(stats.memory_bytes)} / ${formatMib(memoryLimit)}`
         : formatBytes(stats.memory_bytes)
+      : "–",
+  );
+
+  const diskLimit = $derived(server.limits.disk ?? 0);
+  const disk = $derived(stats ? memoryPercent(stats.disk_bytes, diskLimit) : null);
+  const diskLabel = $derived(
+    stats
+      ? diskLimit > 0
+        ? `${formatBytes(stats.disk_bytes)} / ${formatMib(diskLimit)}`
+        : formatBytes(stats.disk_bytes)
       : "–",
   );
 
@@ -166,9 +181,14 @@
 
 <article class="card">
   <div class="top">
-    <div>
+    <div class="title-block">
       <h3>{server.name}</h3>
       <span class="muted node">{server.node}</span>
+      {#if linkedProject && onOpenProject}
+        <button class="proj-chip" onclick={() => onOpenProject(linkedProject.id)} title="Open the Feather project for this server">
+          📦 {linkedProject.name} ↗
+        </button>
+      {/if}
     </div>
     <span class="status" title={live.connected ? "Live connection" : "No live connection"}>
       <span class="dot {dotClass}"></span>
@@ -190,6 +210,13 @@
         <span>{memoryLabel}</span>
       </div>
       <div class="bar"><div class="fill" style="width: {memory ?? 0}%"></div></div>
+    </div>
+    <div class="meter">
+      <div class="meter-head">
+        <span class="muted">Disk</span>
+        <span>{diskLabel}</span>
+      </div>
+      <div class="bar"><div class="fill" style="width: {disk ?? 0}%"></div></div>
     </div>
   </div>
 
@@ -295,12 +322,40 @@
     gap: 8px;
   }
 
+  .title-block {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
   h3 {
     font-size: 15px;
   }
 
   .node {
     font-size: 12px;
+  }
+
+  .proj-chip {
+    margin-top: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 20px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .proj-chip:hover {
+    background: var(--accent);
+    color: #fff;
   }
 
   .status {

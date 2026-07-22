@@ -1,11 +1,31 @@
 <script lang="ts">
   import { auth } from "../auth.svelte";
-  import { getProfile, updateMyProfile, type UserProfile } from "../cloud";
+  import {
+    getProfile,
+    listUserProjects,
+    listUserTeams,
+    updateMyProfile,
+    type CloudProject,
+    type Team,
+    type UserProfile,
+  } from "../cloud";
   import Markdown from "./Markdown.svelte";
 
-  let { userId, onBack }: { userId: string; onBack: () => void } = $props();
+  let {
+    userId,
+    onBack,
+    onOpenTeam,
+    onOpenProject,
+  }: {
+    userId: string;
+    onBack: () => void;
+    onOpenTeam?: (teamId: string) => void;
+    onOpenProject?: (projectId: string) => void;
+  } = $props();
 
   let profile = $state<UserProfile | null>(null);
+  let teams = $state<Team[]>([]);
+  let projects = $state<CloudProject[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -25,10 +45,18 @@
     loading = true;
     error = null;
     editing = false;
+    teams = [];
+    projects = [];
     getProfile(id)
       .then((p) => (profile = p))
       .catch((e) => (error = String(e instanceof Error ? e.message : e)))
       .finally(() => (loading = false));
+    listUserTeams(id)
+      .then((t) => (teams = t))
+      .catch(() => (teams = []));
+    listUserProjects(id)
+      .then((p) => (projects = p))
+      .catch(() => (projects = []));
   });
 
   const name = $derived(profile?.display_name?.trim() || profile?.username || "Unknown");
@@ -166,6 +194,34 @@
           </p>
         {/if}
       </div>
+
+      {#if teams.length > 0}
+        <div class="card">
+          <div class="card-head"><h2>Teams</h2></div>
+          <div class="chips">
+            {#each teams as t (t.id)}
+              <button class="chip" onclick={() => onOpenTeam?.(t.id)} title="Open team">
+                {#if t.logo_url}<img class="chip-logo" src={t.logo_url} alt="" />{/if}
+                {t.name}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if projects.length > 0}
+        <div class="card">
+          <div class="card-head"><h2>Projects</h2></div>
+          <div class="chips">
+            {#each projects as p (p.id)}
+              <button class="chip" onclick={() => onOpenProject?.(p.id)} title="Open project">
+                {#if p.logo_url}<img class="chip-logo" src={p.logo_url} alt="" />{/if}
+                {p.name}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>
@@ -257,10 +313,41 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 18px;
+    margin-bottom: 16px;
   }
 
   .card-head {
     margin-bottom: 12px;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .chip-logo {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    object-fit: cover;
   }
 
   h2 {

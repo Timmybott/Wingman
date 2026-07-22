@@ -10,6 +10,7 @@
     subscribeServer,
     unsubscribeServer,
   } from "../api";
+  import type { CloudProject } from "../cloud";
   import type { LiveState, PowerSignal, Server, ServerEvent } from "../types";
   import ConsoleView from "./ConsoleView.svelte";
   import ServerCard from "./ServerCard.svelte";
@@ -18,13 +19,25 @@
 
   let {
     panels,
+    projects = [],
     focusServer = null,
     onManage,
+    onOpenProject,
   }: {
     panels: PanelInfo[];
+    projects?: CloudProject[];
     focusServer?: { panelId: string; identifier: string } | null;
     onManage: () => void;
+    onOpenProject?: (projectId: string) => void;
   } = $props();
+
+  /** The Feather project (if any) that imported a given server. */
+  function projectFor(panelId: string, identifier: string): { id: string; name: string } | null {
+    const p = projects.find(
+      (pr) => pr.panel_id === panelId && pr.server_identifier === identifier,
+    );
+    return p ? { id: p.id, name: p.name } : null;
+  }
 
   const CONSOLE_BUFFER_LINES = 500;
 
@@ -217,6 +230,8 @@
                   server={entry.server}
                   live={currentLive(k)}
                   opsOnly
+                  linkedProject={projectFor(entry.panelId, entry.server.identifier)}
+                  {onOpenProject}
                   onPower={(signal) => power(entry.panelId, entry.server.identifier, signal)}
                   onOpenConsole={() => (openKey = k)}
                 />

@@ -6,6 +6,73 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-07-22
+
+A project-experience release. Everything inside a project is clearer and more
+clickable: the **Overview** shows the team and creator as links, the **Deploy
+tab** separates uncommitted local edits from what will ship and lets you drill
+into any past deploy, **profiles and team pages** cross-link teams, projects and
+members, the **Files tab** edits files straight on the server, and the **Panels
+tab** shows disk usage and jumps to a server's project. Diffs are now clickable
+down to the line, projects can carry a logo, and several Overview/diff/issue
+bugs are fixed. Requires migrations `supabase/0012`–`0013` (see
+[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)).
+
+### Added
+
+- **Uncommitted changes are called out in the Deploy tab.** The cloud-commit
+  panel now shows a separate **Uncommitted local changes** block — the edits
+  you've made since your last commit (distinct from the total "changes since
+  last deploy"). Click any file for a line-level diff of the last commit's
+  snapshot against your working copy, so you always know what still needs
+  committing before the next deploy.
+- **Deploy-history rows open their deploy.** Each row in a project's Deploy-tab
+  **Deploy history** is now clickable — it opens the shared history focused on
+  that deploy, where you can see its commits and click any changed file for a
+  line-level diff.
+- **Profiles & team pages cross-link.** A user's profile now lists the **teams**
+  and **projects** they're part of, each clickable. A team page lists all its
+  **members** (click through to their profile) and the team's **projects**.
+  You can hop profile → team → member → project without leaving the app.
+- **Panels tab: disk usage & project shortcuts.** Each server tile now shows a
+  **Disk** meter alongside CPU and RAM. Servers that have a Feather project are
+  marked with a project chip you can click to **jump straight to that project**.
+- **Edit server files in place.** In a project's **Files** tab, click a file to
+  open it in an editor and save changes straight back to the server — work
+  directly on the server without a local copy. Text files up to ~1 MB;
+  non-text/oversized files open read-only.
+- **Clickable per-file line diffs.** In the Deploy tab's "Changes since last
+  deploy" and in History (a commit's detail), click any changed file to see a
+  GitHub-style line-level diff — added, removed and changed lines. Deploy-tab
+  diffs compare the server's version to your local file; commit diffs compare
+  the commit's snapshot to its parent's.
+- **Project logos.** A project can carry a logo image (URL), shown on its page
+  and in the project list. Set it under Settings. Requires migration `0012`.
+
+### Changed
+
+- **Overview reworked.** The **Local folder** binding moved from the Overview
+  to **Settings**, and linking an empty folder now **imports the server's
+  files automatically**. The Overview sidebar shows the **team** (click to open
+  the team page) and the creator is clickable to their profile.
+
+### Fixed
+
+- **Diff no longer shows every file as changed after linking a folder.** The
+  Deploy tab diffed against the last *released* bundle, so a freshly imported
+  project (no cloud deploy yet) treated every file as new. The server-state
+  baseline now lives on the project and is set both when the server's files
+  are imported and when a deploy is released (migration `0013`).
+- **Overview stats & recent activity now stay current.** The stat tiles (open
+  issues, deploys, last deploy, current commit) and the Recent-activity list
+  loaded only once and went stale — showing 0 / "No deploys yet" after a
+  deploy. They now reload every time the Overview is opened.
+- **Closed issues can be linked to the commit that fixed them.** The "Fixed in"
+  picker on an issue previously appeared only for issues filed against a Deploy
+  and listed only that one Deploy's commits — so an issue whose fix landed in a
+  later cycle (the usual case once it's closed) could never be linked. It now
+  lists **every commit in the project**, grouped by deploy, for any issue.
+
 ## [2.3.0] — 2026-07-22
 
 A team-collaboration release. Feather's deploy/commit/history flow is reworked

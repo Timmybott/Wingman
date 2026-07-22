@@ -63,11 +63,15 @@ pub fn run() {
             commands::project_manifest,
             commands::project_diff,
             commands::upload_commit_snapshot,
+            commands::snapshot_file,
             commands::project_history,
             commands::deploy_status,
             commands::list_server_files,
             commands::delete_server_files,
             commands::create_server_folder,
+            commands::read_server_file,
+            commands::write_server_file,
+            commands::read_local_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

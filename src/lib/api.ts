@@ -253,3 +253,46 @@ export function createServerFolder(
 ): Promise<void> {
   return invoke<void>("create_server_folder", { panelId, identifier, root, name });
 }
+
+/** Read a server file as UTF-8 text (rejects non-text files). */
+export function readServerFile(
+  panelId: string,
+  identifier: string,
+  path: string,
+): Promise<string> {
+  return invoke<string>("read_server_file", { panelId, identifier, path });
+}
+
+/** Overwrite a server file with new text content. */
+export function writeServerFile(
+  panelId: string,
+  identifier: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  return invoke<void>("write_server_file", { panelId, identifier, path, content });
+}
+
+/** Read a file inside the project's local folder as UTF-8 text. */
+export function readLocalFile(project: ProjectConfig, path: string): Promise<string> {
+  return invoke<string>("read_local_file", { project, path });
+}
+
+/** One file's text from a commit's stored snapshot ("" if not present). */
+export function snapshotFile(
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  commitId: string,
+  path: string,
+): Promise<string> {
+  return invoke<string>("snapshot_file", {
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    commitId,
+    path,
+  });
+}
