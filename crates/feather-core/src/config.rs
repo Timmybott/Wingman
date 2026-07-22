@@ -1,6 +1,6 @@
-//! Persistent app configuration: panels and projects as JSON files in the
-//! app config directory. API keys are NOT stored here — they live in the OS
-//! keychain, keyed by panel id (handled by the Tauri shell).
+//! Persistent app configuration as JSON files in the app config directory.
+//! Panel API keys are NOT stored here — they live encrypted in the cloud and
+//! are held only in memory on this device (handled by the Tauri shell).
 
 use crate::error::Error;
 use serde::{Deserialize, Serialize};

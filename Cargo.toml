@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/wingman-core", "crates/mock-panel", "src-tauri"]
+members = ["crates/feather-core", "crates/mock-panel", "src-tauri"]
 # src-tauri needs system webkit2gtk; plain `cargo build`/`test` covers the
 # GUI-independent crates so the core stays testable in headless environments.
-default-members = ["crates/wingman-core", "crates/mock-panel"]
+default-members = ["crates/feather-core", "crates/mock-panel"]
 
 [workspace.package]
-version = "2.2.0"
+version = "2.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Timmybott/Feather"

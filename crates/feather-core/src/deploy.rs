@@ -165,6 +165,76 @@ async fn run_deploy(
     run_pipeline(client, store, project, &local, commit, tx).await
 }
 
+/// Roll back to a cloud commit's snapshot: download it from the storage
+/// backend, extract it into a temp directory and deploy from there. The local
+/// folder is never touched, so a teammate can roll the server back to any
+/// commit even without that commit's files locally.
+#[allow(clippy::too_many_arguments)]
+pub fn start_snapshot_rollback(
+    client: PanelClient,
+    store: ConfigStore,
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+) -> DeployHandle {
+    spawn_engine(move |tx| async move {
+        run_snapshot_rollback(
+            &client,
+            &store,
+            &project,
+            &endpoint,
+            &token,
+            &anon_key,
+            &project_id,
+            &commit_id,
+            &tx,
+        )
+        .await
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_snapshot_rollback(
+    client: &PanelClient,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    tx: &mpsc::Sender<DeployStep>,
+) -> Result<(usize, usize), Error> {
+    let _ = tx.send(DeployStep::Downloading { percent: 0 }).await;
+    let bytes = crate::snapshot::download_snapshot(
+        endpoint, token, anon_key, project_id, commit_id, "commit",
+    )
+    .await?;
+
+    let _ = tx.send(DeployStep::CheckingOut).await;
+    let temp = tempfile::tempdir()?;
+    {
+        let dest = temp.path().to_path_buf();
+        tokio::task::spawn_blocking(move || crate::snapshot::extract_zip(&bytes, &dest))
+            .await
+            .map_err(|e| Error::Deploy(format!("extract task failed: {e}")))??;
+    }
+
+    // `temp` stays alive until the pipeline is done with its contents.
+    run_pipeline(
+        client,
+        store,
+        project,
+        temp.path(),
+        Some(commit_id.to_string()),
+        tx,
+    )
+    .await
+}
+
 async fn run_rollback(
     client: &PanelClient,
     store: &ConfigStore,

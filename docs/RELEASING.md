@@ -27,14 +27,16 @@ The auto-updater only installs updates signed with the project's key.
 2. Update `CHANGELOG.md`: turn the top section into the new version with
    today's date. The release notes on GitHub can reuse it.
 3. If the release adds or changes cloud features, ship any new SQL migration
-   in `supabase/` and note in the release that users must run it (see
-   `docs/CLOUD-SETUP.md`). Migrations are idempotent and run by the user in
-   the Supabase SQL editor — they are not part of the built app.
+   in `supabase/` (and any change to the `supabase/functions/feather-storage`
+   Edge Function) and note in the release that users must run/redeploy them
+   (see `docs/CLOUD-SETUP.md`). Migrations are idempotent and run by the user
+   in the Supabase SQL editor; the Edge Function is deployed with the Supabase
+   CLI — neither is part of the built app.
 4. Tag and push:
 
    ```sh
-   git tag v2.2.0
-   git push origin v2.2.0
+   git tag v2.3.0
+   git push origin v2.3.0
    ```
 
 4. The **Release** workflow builds:

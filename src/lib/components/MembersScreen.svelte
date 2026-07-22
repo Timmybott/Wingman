@@ -1,9 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { auth } from "../auth.svelte";
-  import { inviteMember, listMembers, removeMember, type TeamMember } from "../cloud";
+  import {
+    inviteMember,
+    listMembers,
+    removeMember,
+    setMemberRole,
+    type TeamMember,
+  } from "../cloud";
 
-  let { teamId }: { teamId: string } = $props();
+  let {
+    teamId,
+    onOpenProfile,
+  }: {
+    teamId: string;
+    onOpenProfile: (userId: string) => void;
+  } = $props();
 
   let members = $state<TeamMember[]>([]);
   let loading = $state(true);
@@ -13,10 +25,12 @@
   let inviting = $state(false);
   let info = $state<string | null>(null);
   let removingId = $state<string | null>(null);
+  let roleBusyId = $state<string | null>(null);
 
   const currentUserId = $derived(auth.user?.id ?? null);
   const myRole = $derived(members.find((m) => m.user_id === currentUserId)?.role ?? null);
   const isAdmin = $derived(myRole === "owner" || myRole === "admin");
+  const isOwner = $derived(myRole === "owner");
 
   async function load() {
     loading = true;
@@ -64,6 +78,21 @@
     }
   }
 
+  /** Owner-only: promote a member to admin or demote them back to member. */
+  async function changeRole(member: TeamMember, role: "admin" | "member") {
+    roleBusyId = member.user_id;
+    error = null;
+    info = null;
+    try {
+      await setMemberRole(teamId, member.user_id, role);
+      await load();
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      roleBusyId = null;
+    }
+  }
+
   function displayName(m: TeamMember): string {
     return m.display_name?.trim() || m.username || "Unknown";
   }
@@ -100,7 +129,7 @@
     <ul class="list">
       {#each members as member (member.user_id)}
         <li>
-          <div class="who">
+          <button class="who" onclick={() => onOpenProfile(member.user_id)} title="View profile">
             <span class="avatar">{displayName(member).charAt(0).toUpperCase()}</span>
             <div class="names">
               <span class="name">
@@ -109,9 +138,28 @@
               </span>
               {#if member.username}<span class="muted handle">@{member.username}</span>{/if}
             </div>
-          </div>
+          </button>
           <div class="right">
             <span class="role role-{member.role}">{member.role}</span>
+            {#if isOwner && member.role === "member"}
+              <button
+                class="ghost"
+                disabled={roleBusyId !== null}
+                onclick={() => changeRole(member, "admin")}
+                title="Grant admin rights"
+              >
+                {roleBusyId === member.user_id ? "…" : "Make admin"}
+              </button>
+            {:else if isOwner && member.role === "admin"}
+              <button
+                class="ghost"
+                disabled={roleBusyId !== null}
+                onclick={() => changeRole(member, "member")}
+                title="Revoke admin rights"
+              >
+                {roleBusyId === member.user_id ? "…" : "Remove admin"}
+              </button>
+            {/if}
             {#if isAdmin && member.role !== "owner" && member.user_id !== currentUserId}
               <button
                 class="ghost danger"
@@ -185,6 +233,17 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 4px;
+    margin: -4px;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .who:hover .name {
+    color: var(--accent);
   }
 
   .avatar {

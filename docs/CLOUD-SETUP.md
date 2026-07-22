@@ -72,10 +72,42 @@ Then run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
 / `add_issue_comment` functions) that power each project's Issues tab. Also
 idempotent.
 
-Last, run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
+Then run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
 in a **new query**. It adds the tombstone table and `request_project_deletion`
 function used by "delete everywhere", so a deleted project is also removed from
 every teammate's machine. Also idempotent.
+
+Then run [`supabase/0008_profiles.sql`](../supabase/0008_profiles.sql) in a
+**new query**. It adds the profile fields (location, website, logo/avatar and a
+Markdown README) to user accounts and teams, restricts team editing to the
+owner, and adds `set_member_role` so the owner can grant or revoke admin
+rights. Also idempotent.
+
+Then run [`supabase/0009_commits.sql`](../supabase/0009_commits.sql) in a
+**new query**. It adds the cloud-commit and deploy-bundle tables (metadata
+only — the file snapshots live on the storage backend) and their RPCs, which
+power the reworked Deploy/commit/history flow. Also idempotent.
+
+Then run [`supabase/0010_commit_manifests.sql`](../supabase/0010_commit_manifests.sql)
+in a **new query**. It adds per-commit and per-deploy content manifests (so a
+"local vs server" diff needs no download), the `finalize_commit` /
+`server_manifest` functions, and the manifest-aware `release_bundle`. Also
+idempotent.
+
+Last, run [`supabase/0011_issue_links.sql`](../supabase/0011_issue_links.sql)
+in a **new query**. It links issues to deploys and commits: a new issue is
+filed against the current Deploy, and a resolved issue can be pinned to the
+commit that fixed it (`assign_issue_commit`). Also idempotent.
+
+## 3b. Deploy the storage function (cloud commits)
+
+Feather stores commit snapshots and rollbacks as files on a dedicated
+Pterodactyl server, reached only through the **`feather-storage`** Edge
+Function so its API key never ships in the app. Follow
+[`supabase/functions/feather-storage/README.md`](../supabase/functions/feather-storage/README.md):
+set the `FEATHER_STORAGE_KEY` secret and run `supabase functions deploy
+feather-storage`. Until it's deployed, Feather treats cloud storage as
+unavailable — so this step is safe to do whenever you're ready.
 
 ## 4. Turn on email login
 

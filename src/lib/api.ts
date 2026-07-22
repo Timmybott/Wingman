@@ -6,7 +6,9 @@ import type {
   CommitInfo,
   DeployStatus,
   DeployStep,
+  Diff,
   FileEntry,
+  Manifest,
   PowerSignal,
   ProjectConfig,
   RemoteDeployInfo,
@@ -14,6 +16,7 @@ import type {
   Server,
   ServerEvent,
   ServerStats,
+  SnapshotUpload,
 } from "./types";
 
 /** Dry-run credentials check; resolves to the number of visible servers. */
@@ -139,6 +142,29 @@ export function rollbackProject(project: ProjectConfig, commitId: string): Promi
 }
 
 /**
+ * Roll the server back to a cloud commit: the Rust side downloads that commit's
+ * snapshot from the storage backend and deploys it. Progress arrives on the
+ * deploy-event channel. The local folder is not touched.
+ */
+export function rollbackToSnapshot(
+  project: ProjectConfig,
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  commitId: string,
+): Promise<void> {
+  return invoke<void>("rollback_to_snapshot", {
+    project,
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    commitId,
+  });
+}
+
+/**
  * Pull server files into the local folder. "import" fills an empty folder
  * right after linking; "sync" updates a clean working tree when another
  * device deployed. Progress arrives on the deploy-event channel.
@@ -161,6 +187,41 @@ export function commitProject(project: ProjectConfig, message: string): Promise<
 
 export function projectHistory(project: ProjectConfig, limit?: number): Promise<CommitInfo[]> {
   return invoke<CommitInfo[]>("project_history", { project, limit });
+}
+
+// --- Cloud commits (M22): manifest, diff and snapshot upload ---------------
+
+/** The content manifest (path → hash) of the project's local folder. */
+export function projectManifest(project: ProjectConfig): Promise<Manifest> {
+  return invoke<Manifest>("project_manifest", { project });
+}
+
+/** Diff the local folder against a base manifest (e.g. the server state). */
+export function projectDiff(project: ProjectConfig, base: Manifest): Promise<Diff> {
+  return invoke<Diff>("project_diff", { project, base });
+}
+
+/**
+ * Pack the local folder into a snapshot zip and upload it to the storage
+ * backend via the feather-storage Edge Function. The Rust side POSTs the bytes
+ * with the caller's session token; the function derives the path from the ids.
+ */
+export function uploadCommitSnapshot(
+  project: ProjectConfig,
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  commitId: string,
+): Promise<SnapshotUpload> {
+  return invoke<SnapshotUpload>("upload_commit_snapshot", {
+    project,
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    commitId,
+  });
 }
 
 export function deployStatus(project: ProjectConfig): Promise<DeployStatus> {

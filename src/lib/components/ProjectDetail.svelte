@@ -1,10 +1,14 @@
 <script lang="ts">
   import {
     deleteProject,
+    listDeploys,
+    listIssues,
     requestProjectDeletion,
     updateProject,
     type CloudPanel,
     type CloudProject,
+    type DeployEntry,
+    type Issue,
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
@@ -28,6 +32,7 @@
     onBack,
     onChanged,
     onDeleted,
+    onOpenServer,
   }: {
     project: CloudProject;
     panels: CloudPanel[];
@@ -35,12 +40,49 @@
     onBack: () => void;
     onChanged: (updated: CloudProject) => void;
     onDeleted: (id: string) => void;
+    onOpenServer: (panelId: string, identifier: string) => void;
   } = $props();
+
+  // Only offer the jump-to-Panels shortcut when the project actually imports a
+  // server (both the panel and the server identifier are set).
+  const linkedServer = $derived(
+    project.panel_id && project.server_identifier
+      ? { panelId: project.panel_id, identifier: project.server_identifier }
+      : null,
+  );
+
+  function openServer() {
+    if (linkedServer) onOpenServer(linkedServer.panelId, linkedServer.identifier);
+  }
 
   type Tab = "overview" | "issues" | "deploy" | "files" | "settings";
   let tab = $state<Tab>("overview");
 
   let error = $state<string | null>(null);
+
+  // Overview summary data (issues + deploys) for the GitHub-style header.
+  let issues = $state<Issue[]>([]);
+  let deploys = $state<DeployEntry[]>([]);
+
+  $effect(() => {
+    const id = project.id;
+    listIssues(id)
+      .then((i) => (issues = i))
+      .catch(() => (issues = []));
+    listDeploys(id)
+      .then((d) => (deploys = d))
+      .catch(() => (deploys = []));
+  });
+
+  const openIssueCount = $derived(issues.filter((i) => i.status === "open").length);
+  const deployCount = $derived(deploys.length);
+  // Deploys come back newest-first.
+  const lastDeploy = $derived<DeployEntry | null>(deploys[0] ?? null);
+  const lastSuccess = $derived<DeployEntry | null>(
+    deploys.find((d) => d.status === "success") ?? null,
+  );
+  const currentCommit = $derived(lastSuccess?.commit ?? null);
+  const recentDeploys = $derived(deploys.slice(0, 4));
 
   // Overview: quick inline description edit.
   let editingDescription = $state(false);
@@ -216,6 +258,24 @@
     });
   }
 
+  /** Compact "3h ago" / "2d ago" for activity lines. */
+  function relativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const sec = Math.round(diff / 1000);
+    if (sec < 60) return "just now";
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.round(hr / 24);
+    if (day < 30) return `${day}d ago`;
+    return formatDate(iso);
+  }
+
+  function deployActor(d: DeployEntry): string {
+    return d.display_name?.trim() || d.username || "someone";
+  }
+
 </script>
 
 <div class="detail">
@@ -232,6 +292,11 @@
       {:else}
         <span class="muted">Not linked to a server yet</span>
       {/if}
+      {#if linkedServer}
+        <button class="ghost small open-panels" onclick={openServer} title="Show this server's tile in the Panels tab">
+          Open in Panels ↗
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -246,6 +311,38 @@
   {#if error}<p class="error">{error}</p>{/if}
 
   {#if tab === "overview"}
+    <div class="stats">
+      <button class="stat" onclick={() => (tab = "issues")} title="Open issues">
+        <span class="stat-num">{openIssueCount}</span>
+        <span class="stat-label muted">Open {openIssueCount === 1 ? "issue" : "issues"}</span>
+      </button>
+      <button class="stat" onclick={() => (tab = "deploy")} title="Deploy history">
+        <span class="stat-num">{deployCount}</span>
+        <span class="stat-label muted">{deployCount === 1 ? "Deploy" : "Deploys"}</span>
+      </button>
+      <button class="stat" onclick={() => (tab = "deploy")} title="Most recent deploy">
+        {#if lastDeploy}
+          <span class="stat-num sm">
+            <span class="dot {lastDeploy.status}"></span>
+            {relativeTime(lastDeploy.created_at)}
+          </span>
+          <span class="stat-label muted">Last {lastDeploy.kind}</span>
+        {:else}
+          <span class="stat-num sm muted">—</span>
+          <span class="stat-label muted">No deploys yet</span>
+        {/if}
+      </button>
+      <button class="stat" onclick={() => (tab = "deploy")} title="Commit currently on the server">
+        {#if currentCommit}
+          <span class="stat-num sm mono">{currentCommit}</span>
+          <span class="stat-label muted">Current commit</span>
+        {:else}
+          <span class="stat-num sm muted">—</span>
+          <span class="stat-label muted">Not deployed</span>
+        {/if}
+      </button>
+    </div>
+
     <div class="overview">
       <div class="main">
         <div class="card">
@@ -268,6 +365,37 @@
             <Markdown source={project.description} onToggleTask={toggleTask} />
           {:else}
             <p class="muted">No description yet. Add goals, plans and notes so your team is on the same page.</p>
+          {/if}
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Recent activity</h2>
+            {#if recentDeploys.length > 0}
+              <button class="ghost small" onclick={() => (tab = "deploy")}>View all</button>
+            {/if}
+          </div>
+          {#if recentDeploys.length > 0}
+            <ul class="activity">
+              {#each recentDeploys as d (d.id)}
+                <li>
+                  <span class="a-badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
+                  <div class="a-main">
+                    <span class="a-title">
+                      <span class="a-kind">{d.kind}</span>
+                      {#if d.commit_summary}<span class="a-summary">{d.commit_summary}</span>
+                      {:else if d.status === "failed" && d.message}<span class="a-summary fail">{d.message}</span>{/if}
+                    </span>
+                    <span class="a-meta muted">
+                      {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
+                      {deployActor(d)} · {relativeTime(d.created_at)}
+                    </span>
+                  </div>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="muted">No deploys yet. The team's deploys and rollbacks show up here.</p>
           {/if}
         </div>
 
@@ -300,7 +428,13 @@
         </div>
         <div class="meta-item">
           <span class="label muted">Server</span>
-          <span class="mono">{project.server_identifier ?? "— not linked —"}</span>
+          {#if linkedServer}
+            <button class="link-btn mono" onclick={openServer} title="Show this server's tile in the Panels tab">
+              {project.server_identifier} ↗
+            </button>
+          {:else}
+            <span class="mono">{project.server_identifier ?? "— not linked —"}</span>
+          {/if}
         </div>
         <div class="meta-item">
           <span class="label muted">Deploy target</span>
@@ -450,6 +584,26 @@
     font-size: 13px;
   }
 
+  .open-panels {
+    padding: 2px 10px;
+    font-size: 12px;
+  }
+
+  .link-btn {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    color: var(--accent);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .link-btn:hover {
+    text-decoration: underline;
+  }
+
   .subtabs {
     display: flex;
     align-items: center;
@@ -476,6 +630,133 @@
   .subtabs button.active {
     color: var(--text);
     border-bottom-color: var(--accent);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat:hover {
+    border-color: var(--accent);
+  }
+
+  .stat-num {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .stat-num.sm {
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot.success {
+    background: var(--ok, #34d399);
+  }
+
+  .dot.failed {
+    background: var(--danger, #f87171);
+  }
+
+  .activity {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .activity li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .a-badge {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .a-badge.success {
+    background: #10b98122;
+    color: #34d399;
+  }
+
+  .a-badge.failed {
+    background: #ef444422;
+    color: #f87171;
+  }
+
+  .a-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .a-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .a-kind {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+
+  .a-summary {
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .a-summary.fail {
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+
+  .a-meta {
+    font-size: 12px;
   }
 
   .overview {
@@ -693,6 +974,10 @@
     .overview,
     .two {
       grid-template-columns: 1fr;
+    }
+
+    .stats {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>

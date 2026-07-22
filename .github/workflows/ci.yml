@@ -21,9 +21,9 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy -p wingman-core -p mock-panel --all-targets -- -D warnings
+        run: cargo clippy -p feather-core -p mock-panel --all-targets -- -D warnings
       - name: Tests
-        run: cargo test -p wingman-core -p mock-panel
+        run: cargo test -p feather-core -p mock-panel
 
   frontend:
     name: Frontend (svelte-check + vitest)

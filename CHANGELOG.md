@@ -4,6 +4,93 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [2.3.0] — 2026-07-22
+
+A team-collaboration release. Feather's deploy/commit/history flow is reworked
+around **cloud commits**: you work locally, see a live diff against the server,
+commit snapshots into a shared **Deploy** that everyone's work bundles into, and
+ship it in one click — with a full **Deploys/Commits history**, diffs and
+**rollback** to any past commit. Accounts and teams get **profile pages**, and
+issues now connect to the deploys and commits that address them. Snapshots are
+stored on a dedicated backend reached only through a key-holding Edge Function.
+Requires migrations `supabase/0008`–`0011` and the `feather-storage` function
+(see [docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)).
+
+### Added
+
+- **Cloud commits & the reworked Deploy tab.** The Deploy tab opens with a
+  **"Changes since last deploy"** panel — a live diff of your local folder
+  against the current server state (added/modified/deleted, with an expandable
+  file list). Commit with a message (e.g. "Commit v2.4.0") and the snapshot is
+  packed and uploaded to the storage backend, joining the project's **current
+  Deploy** — a shared bundle every teammate's commits accumulate into, shown
+  with who committed what. **Deploy** ships the files (via the proven deploy
+  engine) and releases the bundle, recording the deployed state so the diff
+  resets and a fresh Deploy opens. Replaces the old per-project git commit box.
+- **History with Deploys & Commits, diffs and rollback.** A project's
+  **History** now has two categories — **Deploys** (every released bundle) and
+  **Commits** (every commit) — each with a detail page. A commit's page shows
+  its full diff against the previous commit; a deploy's page lists the commits
+  it shipped and its diff against the previous deploy. **Rollback** downloads a
+  past commit's snapshot from the storage backend and redeploys it (the local
+  folder is never touched), so anyone can roll the server back to any commit
+  even without those files locally.
+- **Issues connected to deploys and commits.** A new issue is filed against the
+  project's current Deploy, so a deploy's page lists the issues raised in that
+  cycle (open and fixed). On an issue you can pin the **commit that fixed it**
+  from a dropdown of that Deploy's commits; the commit's detail page then shows
+  the issues it resolved.
+- **Profile pages for users and teams.** Every account and team has a
+  self-customizable, GitHub-style profile — logo/avatar, location, website and a
+  Markdown README — reached from the account menu ("Your profile", "Team
+  profile") or by clicking a teammate in the Members list. You edit your own
+  account profile; a **team's page is editable only by its owner**. Team
+  creation gained matching optional fields.
+- **Owner-granted admin rights.** The team owner can promote a member to admin
+  or demote them from the Members tab, backed by an owner-only `set_member_role`
+  function; direct role changes and team-profile edits are locked to the owner
+  at the database level.
+- **A GitHub-style project Overview.** The Overview opens with a stat row — open
+  issues, total deploys, the last deploy (status dot + relative time) and the
+  commit currently on the server — each tile jumping to the matching tab. Below
+  the About/README, a **Recent activity** card lists the newest deploys and
+  rollbacks.
+- **One click from a project to its server.** A project links straight to its
+  imported server's tile in the **Panels** tab — an "Open in Panels ↗" button
+  and a clickable server id — which switches, scrolls the tile into view and
+  highlights it (respecting reduced-motion).
+
+### Changed
+
+- Completed the rename from the project's old codename to **Feather**: the Rust
+  core crate is now `feather-core` (was `wingman-core`), and the HTTP
+  user-agent, gradient id and internal comments no longer reference the old
+  name. Deploy backups were already named `feather-pre-deploy-*`.
+
+### Fixed
+
+- **Pre-deploy backups now surface when they can't be taken.** The engine polls
+  each `feather-pre-deploy-*` backup to completion and only proceeds once the
+  panel reports success, but a *skipped* backup (no backup slots, or every slot
+  held by a foreign backup Feather won't rotate) was silently swallowed by the
+  UI. The Deploy tab now shows a persistent amber warning and the desktop sends
+  a "No backup taken" notification, so "Back up the server before each deploy"
+  can never fail quietly.
+
+### Security
+
+- **A reserved storage backend, fully excluded from normal use.** Snapshots and
+  rollbacks live on a dedicated Pterodactyl server whose API key never ships in
+  the app — it lives only in the **`feather-storage`** Supabase Edge Function,
+  which authenticates each caller, checks team membership and derives every
+  storage path server-side (self-creating the folder tree). That server is
+  hard-excluded from every ordinary Feather code path — filtered from listings
+  and rejected from all server-scoped operations — so even a user who connects a
+  panel at the same host with a key that can see it can never list, import,
+  browse or deploy to it.
+
 ## [2.2.0] — 2026-07-22
 
 Reworked the app around a clearer split: **Panels** for live server operation,
@@ -182,6 +269,9 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.3.0]: https://github.com/Timmybott/Feather/releases/tag/v2.3.0
+[2.2.0]: https://github.com/Timmybott/Feather/releases/tag/v2.2.0
+[2.1.0]: https://github.com/Timmybott/Feather/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Timmybott/Feather/releases/tag/v2.0.0
 [1.2.1]: https://github.com/Timmybott/Feather/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Timmybott/Feather/releases/tag/v1.2.0

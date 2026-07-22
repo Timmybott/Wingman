@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 22. Juli 2026 · Version 0.4 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
+> Stand: 22. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; **Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -74,7 +74,7 @@ Dazu: **`.deployignore`** (gitignore-Syntax) — bei „immer alles hochladen" p
 ### 6.1 Repository-Struktur
 
 ```
-crates/wingman-core/   Panel-API-Client (reqwest), Deploy-Engine, git2, Zip,
+crates/feather-core/   Panel-API-Client (reqwest), Deploy-Engine, git2, Zip,
                        .deployignore, Datenmodell — KEINE Tauri-Abhängigkeit
 crates/mock-panel/     Mock der Pterodactyl Client-API (axum) für Tests + Dev
 src-tauri/             Tauri-2-Shell: Fenster, IPC-Commands, Schlüsselbund
@@ -236,3 +236,43 @@ Die App wird um einen klaren Schnitt herum neu strukturiert: **Panels = Server-B
 - **Löschen (2 Stufen):** *Aus Feather entfernen* (Cloud-Projekt weg, lokale Dateien bleiben) und *überall löschen* (Tombstone `project_deletions` (0007) + Cloud-Projekt weg; jeder Client löscht seinen lokalen Ordner beim nächsten Start; Guard gegen flache Pfade).
 - **Migrationen:** `0007_project_deletions.sql` ergänzt.
 - **Linux-Icon-Fix:** Bundle-`identifier` von `…wingman` auf `…feather` gezogen, damit der Desktop das Fenster seinem `.desktop`-Icon zuordnet.
+
+### 10.7 Cloud-Commits, Profile & Issue-Verknüpfung (v2.3)
+
+v2.3 arbeitet den Deploy/Commit/History/Rollback-Fluss zu **Cloud-Commits** um, gibt Konten und Teams **Profilseiten**, verbindet **Issues mit Deploys/Commits** und lagert Commit-Snapshots auf einen **eigenen Storage-Server** aus. Grundsatz bleibt: Supabase hält nur Metadaten; die einzigen Datei-Bytes in der Cloud sind Commit-Snapshots, und die gehen **nicht** in Supabase Storage.
+
+**Cloud-Commit-Modell (M22).**
+- Ein Mitglied arbeitet lokal; der Deploy-Tab zeigt einen **Live-Diff lokal-vs-Server** (aus leichtgewichtigen Content-Manifesten, kein Download nötig).
+- **Commit** packt den Arbeitsordner als Snapshot-Zip, lädt ihn über die Edge Function auf den Storage-Server und hängt einen `commits`-Eintrag an das **aktuelle „Deploy"-Bündel** (`deploy_bundles`, genau ein `pending` pro Projekt via Partial-Unique-Index). Alle Mitglieder-Commits sammeln sich dort.
+- **Deploy** schickt die Dateien mit der bewährten Engine auf den Server und **released** das Bündel (`release_bundle` speichert das deployte Manifest = neuer Server-Stand, öffnet ein frisches Bündel). Andere Geräte ziehen den neuen Stand per bestehendem Sync-Marker.
+- **History** mit Kategorien **Deploys** und **Commits**; Diffs pro Commit (vs. Vorgänger) und pro Deploy (vs. Vor-Deploy), Commit-Detailseiten.
+- **Rollback** lädt den Snapshot eines alten Commits vom Storage-Server, entpackt ihn in einen Temp-Ordner und deployt daraus (Working Tree unberührt — analog 6.4, Quelle ist der heruntergeladene Snapshot statt `git archive`).
+
+**Storage-Backend (geheim, für alle Nutzer).**
+- Ein dedizierter Pterodactyl-Server hält die Snapshots unter `data/<team>/<project>/{commits,rollbacks}/<id>.zip`. Der API-Key liegt **ausschließlich** in der Supabase Edge Function **`feather-storage`** (Secret `FEATHER_STORAGE_KEY`), nie in der App oder im Repo.
+- Die Function authentifiziert den Aufrufer per Supabase-JWT, prüft die Team-Mitgliedschaft (RLS auf `projects`), **leitet den Pfad selbst aus den IDs ab** (Client übergibt nie einen Pfad) und legt den Ordnerbaum beim ersten Schreiben an. Nginx/der Rest des Servers bleiben unberührt.
+- **Harter Ausschluss:** Der Rust-Kern (`feather_core::storage`) filtert genau diesen Server (Host + Kurz-ID) aus jeder Serverliste und lehnt jede serverbezogene Operation dagegen ab (`Error::ReservedServer`) — selbst wer dasselbe Panel mit einem berechtigten Key einträgt, kann ihn nie sehen/importieren/deployen.
+- Der eigentliche Byte-Transfer läuft im Rust-Kern (`upload_snapshot`/`download_snapshot` via reqwest), also **ohne Browser-CORS**; die Verfügbarkeitsprüfung im Frontend ist bewusst optimistisch.
+
+**Profile & Admin-Rechte (M21).**
+- `profiles` und `teams` bekommen `location`, `website`, Logo/Avatar-URL und eine Markdown-`bio`/`description`. Profilseiten für jeden User und jedes Team (GitHub-artig, selbst anpassbar). Team-Seite **nur vom Owner** editierbar (RLS `teams_update` owner-only).
+- **Admin-Rechte:** nur der Owner vergibt/entzieht Admin (`set_member_role`, owner-only); direkte `team_members`-Schreibzugriffe sind owner-only, Einladen/Entfernen laufen weiter über die Admin-geprüften RPCs.
+
+**Issues ↔ Deploys/Commits (M23).**
+- `issues` bekommen `bundle_id` + `commit_id`. `create_issue` verknüpft ein neues Issue mit dem **aktuellen Deploy**; `assign_issue_commit` pinnt ein gelöstes Issue an den **Commit**, der es behoben hat (verschiebt es in dessen Deploy). Deploy-Seite listet ihre Issues, Commit-Seite die von ihr gelösten Issues.
+
+**Weitere v2.3-Punkte.**
+- **M18:** Pre-Deploy-Backup wird verifiziert (Engine pollt bis Erfolg); ein *übersprungenes* Backup zeigt jetzt eine dauerhafte Warnung + Desktop-Benachrichtigung.
+- **M19:** Ein-Klick vom Projekt zur Server-Kachel im Panels-Tab (scrollt + hebt hervor).
+- **M20:** GitHub-artige Projekt-Overview (Stat-Zeile + Recent-Activity).
+- **M17:** vollständige Umbenennung Rust-Crate `wingman-core` → `feather-core`.
+
+**Cloud-Datenmodell-Erweiterung (`supabase/0008`–`0011`).**
+- `0008` Profilfelder + `is_team_owner`/`set_member_role` + owner-only-Policies + `create_team` mit Profilfeldern.
+- `0009` `commits` + `deploy_bundles` + `current_bundle`/`create_commit`/`release_bundle`.
+- `0010` Manifest-Spalten + `finalize_commit`/`server_manifest` + manifest-fähiges `release_bundle`.
+- `0011` `issues.bundle_id`/`commit_id` + `assign_issue_commit`, `create_issue` verknüpft aktuelles Bündel.
+
+**Neue Meilensteine (v2.3):** M17 (Rename) · M18 (Backup-Verifikation) · M19 (Projekt→Panels) · M20 (Overview) · M21 (Profile + Admin) · M22a–f (Cloud-Commits/History/Rollback + Storage-Backend) · M23 (Issue-Verknüpfung) — alle abgeschlossen.
+
+**Bekannte Kante:** Nach einem Rollback wird die Server-Manifest-Referenz für den Diff nicht aktualisiert; der nächste Diff misst gegen den letzten *Deploy*, nicht den Rollback-Stand (unkritisch, später nachziehbar).

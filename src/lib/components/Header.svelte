@@ -4,11 +4,15 @@
   let {
     userEmail,
     teamName,
+    onOpenProfile,
+    onOpenTeam,
     onSwitchTeam,
     onLogout,
   }: {
     userEmail: string;
     teamName: string;
+    onOpenProfile: () => void;
+    onOpenTeam: () => void;
     onSwitchTeam: () => void;
     onLogout: () => void;
   } = $props();
@@ -32,6 +36,24 @@
         <button class="backdrop" aria-label="Close menu" onclick={() => (menuOpen = false)}></button>
         <div class="menu">
           <div class="menu-user muted">{userEmail}</div>
+          <button
+            class="menu-item"
+            onclick={() => {
+              menuOpen = false;
+              onOpenProfile();
+            }}
+          >
+            Your profile
+          </button>
+          <button
+            class="menu-item"
+            onclick={() => {
+              menuOpen = false;
+              onOpenTeam();
+            }}
+          >
+            Team profile
+          </button>
           <button
             class="menu-item"
             onclick={() => {

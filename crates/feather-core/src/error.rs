@@ -1,4 +1,4 @@
-/// Errors produced by wingman-core. Messages are user-facing: the Tauri shell
+/// Errors produced by feather-core. Messages are user-facing: the Tauri shell
 /// forwards them to the frontend via `to_string()`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -10,6 +10,9 @@ pub enum Error {
 
     #[error("invalid server identifier `{0}`")]
     InvalidServerIdentifier(String),
+
+    #[error("this server is reserved by Feather and cannot be used here")]
+    ReservedServer,
 
     #[error("authentication failed (HTTP {status}) — check the API key")]
     Unauthorized { status: u16 },

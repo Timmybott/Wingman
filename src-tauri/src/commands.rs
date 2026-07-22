@@ -2,18 +2,19 @@
 //! strings, so every command maps core errors with `to_string()`.
 
 use crate::AppState;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
-use tokio::sync::mpsc;
-use wingman_core::deploy::{start_deploy, start_rollback, DeployStep};
-use wingman_core::git;
-use wingman_core::models::{FileEntry, PowerSignal, Server, ServerStats};
-use wingman_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
-use wingman_core::ws::Outgoing;
-use wingman_core::{
+use feather_core::deploy::{start_deploy, start_rollback, start_snapshot_rollback, DeployStep};
+use feather_core::git;
+use feather_core::models::{FileEntry, PowerSignal, Server, ServerStats};
+use feather_core::snapshot;
+use feather_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
+use feather_core::ws::Outgoing;
+use feather_core::{
     normalize_base_url, CommitInfo, DeployHandle, PanelClient, PostDeployAction, ProjectConfig,
     RepoStatus, ServerSocket,
 };
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
+use tokio::sync::mpsc;
 
 type CmdResult<T> = Result<T, String>;
 
@@ -325,6 +326,38 @@ pub async fn rollback_project(
     Ok(())
 }
 
+/// Roll the server back to a cloud commit: download that commit's snapshot
+/// from the storage backend and deploy it. Shares the running-guard and event
+/// channel with deploy_project; the local folder is not touched.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn rollback_to_snapshot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+) -> CmdResult<()> {
+    let client = client_for(&state, &project.panel_id)?;
+    let engine_id = project.id.clone();
+    claim_engine_slot(&state, &engine_id).await?;
+    let handle = start_snapshot_rollback(
+        client,
+        state.store.clone(),
+        project.clone(),
+        endpoint,
+        token,
+        anon_key,
+        project_id,
+        commit_id,
+    );
+    forward_engine_events(app, project, engine_id, handle, "Rollback");
+    Ok(())
+}
+
 /// Pull the server state into the local folder. `mode` is "import" (only
 /// into an empty folder, right after linking) or "sync" (only with a clean
 /// working tree — multi-device sync). Progress shares the deploy-event
@@ -381,7 +414,7 @@ pub async fn check_remote_deploy(
     let newer = is_newer(&remote, record.as_ref());
     let dirty = if newer {
         let path = project.local_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<bool, wingman_core::Error> {
+        tokio::task::spawn_blocking(move || -> Result<bool, feather_core::Error> {
             git::ensure_repo(&path)?;
             Ok(git::status(&path)?.dirty)
         })
@@ -429,6 +462,16 @@ fn forward_engine_events(
                         .builder()
                         .title(format!("{verb} failed — {}", project.name))
                         .body(message.clone())
+                        .show();
+                }
+                DeployStep::BackupSkipped { reason } => {
+                    // A missing backup is not fatal, but the user must know it
+                    // was NOT taken (e.g. all backup slots are foreign).
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(format!("No backup taken — {}", project.name))
+                        .body(reason.clone())
                         .show();
                 }
                 _ => {}
@@ -516,6 +559,62 @@ pub async fn commit_project(project: ProjectConfig, message: String) -> CmdResul
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+/// The content manifest (path → hash) of the project's local folder.
+#[tauri::command]
+pub async fn project_manifest(project: ProjectConfig) -> CmdResult<snapshot::Manifest> {
+    tokio::task::spawn_blocking(move || snapshot::manifest_of(&project.local_path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Diff the project's local folder against a base manifest (e.g. the current
+/// server state), yielding added/modified/deleted changes.
+#[tauri::command]
+pub async fn project_diff(
+    project: ProjectConfig,
+    base: snapshot::Manifest,
+) -> CmdResult<snapshot::Diff> {
+    tokio::task::spawn_blocking(move || snapshot::diff_against(&project.local_path, &base))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Result of packing + uploading a commit snapshot to the storage backend.
+#[derive(serde::Serialize)]
+pub struct SnapshotUpload {
+    pub files: usize,
+    pub manifest: snapshot::Manifest,
+}
+
+/// Pack the local folder into a snapshot zip and upload it to the storage
+/// backend through the `feather-storage` Edge Function. The function holds the
+/// storage key and derives the path from the ids; we pass the caller's session
+/// token so it can authorize the write.
+#[tauri::command]
+pub async fn upload_commit_snapshot(
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+) -> CmdResult<SnapshotUpload> {
+    let (files, manifest) = snapshot::upload_snapshot(
+        &project.local_path,
+        &endpoint,
+        &token,
+        &anon_key,
+        &project_id,
+        &commit_id,
+        "commit",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(SnapshotUpload { files, manifest })
 }
 
 #[tauri::command]

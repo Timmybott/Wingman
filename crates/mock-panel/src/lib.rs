@@ -8,7 +8,7 @@
 //! Websocket: `/node/ws/{id}` speaks the Wings console protocol (auth frame,
 //! `auth success`, `status`/`stats`/`console output` pushes, `send command`,
 //! `send logs`, re-auth after `token expiring`). Response shapes mirror the
-//! real panel so wingman-core is tested against realistic JSON.
+//! real panel so feather-core is tested against realistic JSON.
 //!
 //! Run standalone with `cargo run -p mock-panel`.
 

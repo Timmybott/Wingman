@@ -64,7 +64,7 @@ impl PanelClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         let http = reqwest::Client::builder()
             .default_headers(headers)
-            .user_agent(concat!("wingman/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("feather/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { base, http })
     }
@@ -77,6 +77,16 @@ impl PanelClient {
     /// `Origin` header on websocket connections against the panel URL.
     pub fn origin(&self) -> String {
         self.base.origin().ascii_serialization()
+    }
+
+    /// Refuse any server-scoped operation aimed at the reserved storage
+    /// backend, so it can never be operated as an ordinary server even if an
+    /// identifier is supplied directly (bypassing the filtered listing).
+    fn reject_reserved(&self, identifier: &str) -> Result<(), Error> {
+        if crate::storage::is_reserved_on(&self.base, identifier) {
+            return Err(Error::ReservedServer);
+        }
+        Ok(())
     }
 
     /// All servers the API key has access to, following pagination.
@@ -93,12 +103,18 @@ impl PanelClient {
                 _ => break,
             }
         }
+        // The reserved storage backend is never an ordinary server: hide it from
+        // every listing so it can't be imported, browsed or deployed to.
+        let host = self.base.host_str();
+        servers
+            .retain(|s| !crate::storage::is_reserved_storage_server(host, &s.identifier, &s.uuid));
         Ok(servers)
     }
 
     /// Full details of one server (limits, feature limits, …).
     pub async fn server_details(&self, identifier: &str) -> Result<Server, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let server: ApiObject<Server> = self
             .get_json(&format!("api/client/servers/{identifier}"), &[])
             .await?;
@@ -108,6 +124,7 @@ impl PanelClient {
     /// All backups of a server.
     pub async fn list_backups(&self, identifier: &str) -> Result<Vec<Backup>, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let list: ApiList<Backup> = self
             .get_json(&format!("api/client/servers/{identifier}/backups"), &[])
             .await?;
@@ -118,6 +135,7 @@ impl PanelClient {
     /// [`Self::backup_details`] until `completed_at` is set.
     pub async fn create_backup(&self, identifier: &str, name: &str) -> Result<Backup, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/backups"))
@@ -137,6 +155,7 @@ impl PanelClient {
 
     pub async fn backup_details(&self, identifier: &str, uuid: &str) -> Result<Backup, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         validate_identifier(uuid)?;
         let backup: ApiObject<Backup> = self
             .get_json(
@@ -149,6 +168,7 @@ impl PanelClient {
 
     pub async fn delete_backup(&self, identifier: &str, uuid: &str) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         validate_identifier(uuid)?;
         let url = self
             .base
@@ -162,6 +182,7 @@ impl PanelClient {
     /// Power state and live resource usage of one server.
     pub async fn server_resources(&self, identifier: &str) -> Result<ServerStats, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let stats: ApiObject<ServerStats> = self
             .get_json(&format!("api/client/servers/{identifier}/resources"), &[])
             .await?;
@@ -171,6 +192,7 @@ impl PanelClient {
     /// Send a power signal (start/stop/restart/kill). The panel replies 204.
     pub async fn set_power(&self, identifier: &str, signal: PowerSignal) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/power"))
@@ -192,6 +214,7 @@ impl PanelClient {
         directory: &str,
     ) -> Result<Vec<FileEntry>, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let list: ApiList<FileEntry> = self
             .get_json(
                 &format!("api/client/servers/{identifier}/files/list"),
@@ -204,6 +227,7 @@ impl PanelClient {
     /// Raw contents of one server file (`GET .../files/contents`).
     pub async fn read_file(&self, identifier: &str, file: &str) -> Result<Vec<u8>, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/files/contents"))
@@ -221,6 +245,7 @@ impl PanelClient {
         contents: Vec<u8>,
     ) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/files/write"))
@@ -245,6 +270,7 @@ impl PanelClient {
         files: &[String],
     ) -> Result<FileEntry, Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/files/compress"))
@@ -269,6 +295,7 @@ impl PanelClient {
             url: String,
         }
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let url = self
             .base
             .join(&format!("api/client/servers/{identifier}/files/download"))
@@ -311,6 +338,7 @@ impl PanelClient {
             url: String,
         }
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let obj: ApiObject<SignedUrl> = self
             .get_json(
                 &format!("api/client/servers/{identifier}/files/upload"),
@@ -367,6 +395,7 @@ impl PanelClient {
         file: &str,
     ) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         self.post_json(
             &format!("api/client/servers/{identifier}/files/decompress"),
             &serde_json::json!({ "root": root, "file": file }),
@@ -382,6 +411,7 @@ impl PanelClient {
         files: &[String],
     ) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         self.post_json(
             &format!("api/client/servers/{identifier}/files/delete"),
             &serde_json::json!({ "root": root, "files": files }),
@@ -397,6 +427,7 @@ impl PanelClient {
         name: &str,
     ) -> Result<(), Error> {
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         self.post_json(
             &format!("api/client/servers/{identifier}/files/create-folder"),
             &serde_json::json!({ "root": root, "name": name }),
@@ -412,6 +443,7 @@ impl PanelClient {
             data: WebsocketDetails,
         }
         validate_identifier(identifier)?;
+        self.reject_reserved(identifier)?;
         let envelope: Envelope = self
             .get_json(&format!("api/client/servers/{identifier}/websocket"), &[])
             .await?;

@@ -11,6 +11,13 @@
   let newName = $state("");
   let busy = $state(false);
 
+  // Optional profile fields, revealed on demand.
+  let showDetails = $state(false);
+  let location = $state("");
+  let website = $state("");
+  let logoUrl = $state("");
+  let description = $state("");
+
   onMount(async () => {
     try {
       teams = await listTeams();
@@ -32,7 +39,12 @@
     busy = true;
     error = null;
     try {
-      const team = await createTeam(newName);
+      const team = await createTeam(newName, {
+        location: location.trim() || null,
+        website: website.trim() || null,
+        logo_url: logoUrl.trim() || null,
+        description: description.trim() || null,
+      });
       choose(team);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
@@ -64,8 +76,25 @@
     {/if}
 
     <form onsubmit={create}>
-      <input bind:value={newName} placeholder="New team name" autocomplete="off" disabled={busy} />
-      <button type="submit" class="primary" disabled={busy || newName.trim() === ""}>Create</button>
+      <div class="row">
+        <input bind:value={newName} placeholder="New team name" autocomplete="off" disabled={busy} />
+        <button type="submit" class="primary" disabled={busy || newName.trim() === ""}>Create</button>
+      </div>
+
+      <button type="button" class="details-toggle muted" onclick={() => (showDetails = !showDetails)}>
+        {showDetails ? "▾" : "▸"} Add details (optional)
+      </button>
+
+      {#if showDetails}
+        <div class="details">
+          <div class="two">
+            <input bind:value={location} placeholder="Location" autocomplete="off" disabled={busy} />
+            <input bind:value={website} placeholder="Website" autocomplete="off" spellcheck="false" disabled={busy} />
+          </div>
+          <input bind:value={logoUrl} placeholder="Logo image URL" autocomplete="off" spellcheck="false" disabled={busy} />
+          <textarea bind:value={description} rows="4" placeholder="README (Markdown) — what is this team about?" disabled={busy}></textarea>
+        </div>
+      {/if}
     </form>
   {/if}
 
@@ -127,6 +156,42 @@
 
   form {
     display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .row {
+    display: flex;
     gap: 8px;
+  }
+
+  .row input {
+    flex: 1;
+  }
+
+  .details-toggle {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    font: inherit;
   }
 </style>
