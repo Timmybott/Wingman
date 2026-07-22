@@ -8,6 +8,13 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **A GitHub-style project Overview.** The Overview now opens with a stat row
+  — open issues, total deploys, the last deploy (with a status dot and
+  relative time) and the commit currently on the server — each tile jumping
+  to the matching tab. Below the About/README, a **Recent activity** card
+  lists the newest deploys and rollbacks (status, commit, who and when) with
+  a shortcut to the full history, so a project's state and momentum are
+  visible at a glance.
 - **One click from a project to its server.** A project page now links
   straight to its imported server's tile in the **Panels** tab — an "Open in
   Panels ↗" button in the project header and the clickable server id in the
