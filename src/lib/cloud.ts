@@ -248,3 +248,99 @@ export async function removeMember(teamId: string, userId: string): Promise<void
   });
   if (error) throw new Error(error.message);
 }
+
+// --- Deploy history --------------------------------------------------------
+
+export type DeployKind = "deploy" | "rollback" | "sync";
+export type DeployStatus = "success" | "failed";
+
+export interface DeployEntry {
+  id: string;
+  kind: DeployKind;
+  status: DeployStatus;
+  commit: string | null;
+  commit_summary: string | null;
+  files_count: number | null;
+  message: string | null;
+  created_at: string;
+  user_id: string | null;
+  display_name: string | null;
+  username: string | null;
+}
+
+export async function listDeploys(projectId: string): Promise<DeployEntry[]> {
+  const { data, error } = await supabase
+    .from("deploys")
+    .select(
+      "id, kind, status, commit, commit_summary, files_count, message, created_at, user_id, profiles(display_name, username)",
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => {
+    const raw = (row as { profiles?: unknown }).profiles;
+    const profile = (Array.isArray(raw) ? raw[0] : raw) as
+      | { display_name: string | null; username: string | null }
+      | null
+      | undefined;
+    return {
+      id: row.id,
+      kind: row.kind,
+      status: row.status,
+      commit: row.commit,
+      commit_summary: row.commit_summary,
+      files_count: row.files_count,
+      message: row.message,
+      created_at: row.created_at,
+      user_id: row.user_id,
+      display_name: profile?.display_name ?? null,
+      username: profile?.username ?? null,
+    };
+  });
+}
+
+export interface DeployOutcome {
+  projectId: string;
+  kind: DeployKind;
+  status: DeployStatus;
+  commit?: string | null;
+  commitSummary?: string | null;
+  files?: number | null;
+  message?: string | null;
+}
+
+export async function recordDeploy(outcome: DeployOutcome): Promise<void> {
+  const { error } = await supabase.rpc("record_deploy", {
+    p_project: outcome.projectId,
+    p_kind: outcome.kind,
+    p_status: outcome.status,
+    p_commit: outcome.commit ?? null,
+    p_commit_summary: outcome.commitSummary ?? null,
+    p_files: outcome.files ?? null,
+    p_message: outcome.message ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * The cloud project a server deploys to, matched by panel + server. If the
+ * team has no project linked to that server yet, one is created so the deploy
+ * always has a home for its history.
+ */
+export async function findOrCreateProjectForServer(
+  teamId: string,
+  panelId: string | null,
+  serverIdentifier: string,
+  name: string,
+): Promise<CloudProject> {
+  const projects = await listProjects(teamId);
+  const existing = projects.find(
+    (p) => p.panel_id === panelId && p.server_identifier === serverIdentifier,
+  );
+  if (existing) return existing;
+  return createProject(teamId, {
+    name,
+    panel_id: panelId,
+    server_identifier: serverIdentifier,
+  });
+}

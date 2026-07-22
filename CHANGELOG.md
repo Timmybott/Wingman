@@ -37,7 +37,12 @@ runs locally on each machine; the cloud holds the shared data.
   an **Overview** (an editable "About" description plus a sidebar showing the
   linked panel, server, deploy target, post-deploy behaviour, and who created
   it when) and a **Settings** tab to edit every field, with a delete
-  danger-zone. The tab bar is where Issues, Deploys and Planning will live.
+  danger-zone. The tab bar is where Issues and Planning will live.
+- **Deploy history** — a **Deploys** tab on each project shows every deploy and
+  rollback the team has run: status, commit, file count, who ran it and when.
+  Deploys and rollbacks from the server dashboard are recorded automatically
+  against the matching project (created on first deploy if needed), so the
+  whole team sees a shared timeline.
 
 ### Changed
 
