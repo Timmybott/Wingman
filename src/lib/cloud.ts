@@ -1,7 +1,7 @@
 // Typed helpers for Feather's cloud data (Supabase). More will be added per
 // milestone (panels, projects, deploys, issues).
 
-import { supabase } from "./supabase";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "./supabase";
 
 export interface Team {
   id: string;
@@ -584,4 +584,211 @@ export async function addComment(issueId: string, body: string): Promise<void> {
     p_body: body,
   });
   if (error) throw new Error(error.message);
+}
+
+// --- Cloud commits & deploy bundles (M22) ----------------------------------
+//
+// A member commits their local change set (buffered as e.g. "Commit v2.4.0").
+// Every member's commits accumulate into the project's single pending deploy
+// bundle — the "current Deploy". Releasing that bundle ships its commits to the
+// server and opens a fresh one. The database holds only metadata; the file
+// snapshots live on the storage backend, reached through the feather-storage
+// Edge Function (see putSnapshot/getSnapshot below).
+
+export type BundleStatus = "pending" | "released" | "failed";
+
+export interface DeployBundle {
+  id: string;
+  project_id: string;
+  team_id: string;
+  status: BundleStatus;
+  created_at: string;
+  released_at: string | null;
+  released_by: string | null;
+  files_count: number | null;
+  message: string | null;
+}
+
+export interface CloudCommit {
+  id: string;
+  project_id: string;
+  bundle_id: string | null;
+  author_id: string | null;
+  message: string;
+  files_count: number | null;
+  stored: boolean;
+  created_at: string;
+  author_name: string | null;
+}
+
+function bundleFrom(data: unknown): DeployBundle {
+  return (Array.isArray(data) ? data[0] : data) as DeployBundle;
+}
+
+/** The project's current pending bundle, creating one if none exists. */
+export async function currentBundle(projectId: string): Promise<DeployBundle> {
+  const { data, error } = await supabase.rpc("current_bundle", { p_project: projectId });
+  if (error) throw new Error(error.message);
+  return bundleFrom(data);
+}
+
+/** Create a commit in the project's current pending bundle. */
+export async function createCommit(
+  projectId: string,
+  message: string,
+  files: number | null,
+): Promise<CloudCommit> {
+  const { data, error } = await supabase.rpc("create_commit", {
+    p_project: projectId,
+    p_message: message,
+    p_files: files,
+  });
+  if (error) throw new Error(error.message);
+  return (Array.isArray(data) ? data[0] : data) as CloudCommit;
+}
+
+/** Flag a commit's snapshot as uploaded (after putSnapshot succeeds). */
+export async function markCommitStored(commitId: string): Promise<void> {
+  const { error } = await supabase.rpc("mark_commit_stored", { p_commit: commitId });
+  if (error) throw new Error(error.message);
+}
+
+/** Release the current bundle: ship it and open a fresh one. */
+export async function releaseBundle(
+  projectId: string,
+  files: number | null,
+  message: string | null,
+): Promise<DeployBundle> {
+  const { data, error } = await supabase.rpc("release_bundle", {
+    p_project: projectId,
+    p_files: files,
+    p_message: message,
+  });
+  if (error) throw new Error(error.message);
+  return bundleFrom(data);
+}
+
+/** All bundles of a project, newest first. */
+export async function listBundles(projectId: string): Promise<DeployBundle[]> {
+  const { data, error } = await supabase
+    .from("deploy_bundles")
+    .select(
+      "id, project_id, team_id, status, created_at, released_at, released_by, files_count, message",
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as DeployBundle[];
+}
+
+/** Commits of a project (optionally limited to one bundle), newest first. */
+export async function listCommits(projectId: string, bundleId?: string): Promise<CloudCommit[]> {
+  let query = supabase
+    .from("commits")
+    .select(
+      "id, project_id, bundle_id, author_id, message, files_count, stored, created_at, profiles(display_name, username)",
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (bundleId) query = query.eq("bundle_id", bundleId);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    project_id: row.project_id,
+    bundle_id: row.bundle_id,
+    author_id: row.author_id,
+    message: row.message,
+    files_count: row.files_count,
+    stored: row.stored,
+    created_at: row.created_at,
+    author_name: profileName((row as { profiles?: unknown }).profiles),
+  }));
+}
+
+// --- Storage backend (feather-storage Edge Function) -----------------------
+//
+// Commit/rollback snapshots are stored as files on Feather's storage server,
+// reached only through the Edge Function so its API key stays server-side. The
+// function derives the path from the ids; we only pass ids and the bytes.
+
+export type SnapshotKind = "commit" | "rollback";
+
+const STORAGE_ENDPOINT = `${SUPABASE_URL}/functions/v1/feather-storage`;
+
+async function storageHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("not signed in");
+  return { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY };
+}
+
+function storageUrl(
+  action: string,
+  projectId: string,
+  commitId: string | null,
+  kind: SnapshotKind,
+): string {
+  const params = new URLSearchParams({ action, project_id: projectId, kind });
+  if (commitId) params.set("commit_id", commitId);
+  return `${STORAGE_ENDPOINT}?${params.toString()}`;
+}
+
+/** Upload a commit/rollback snapshot (a zip) to the storage backend. */
+export async function putSnapshot(
+  projectId: string,
+  commitId: string,
+  kind: SnapshotKind,
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<void> {
+  const res = await fetch(storageUrl("put", projectId, commitId, kind), {
+    method: "POST",
+    headers: { ...(await storageHeaders()), "content-type": "application/octet-stream" },
+    // Both ArrayBuffer and Uint8Array are valid fetch bodies at runtime; the
+    // cast sidesteps the DOM lib's ArrayBufferLike/SharedArrayBuffer generics.
+    body: bytes as BodyInit,
+  });
+  if (!res.ok) throw new Error(`snapshot upload failed (${res.status})`);
+}
+
+/** Download a snapshot (a zip) from the storage backend. */
+export async function getSnapshot(
+  projectId: string,
+  commitId: string,
+  kind: SnapshotKind,
+): Promise<ArrayBuffer> {
+  const res = await fetch(storageUrl("get", projectId, commitId, kind), {
+    headers: await storageHeaders(),
+  });
+  if (!res.ok) throw new Error(`snapshot download failed (${res.status})`);
+  return await res.arrayBuffer();
+}
+
+/** Delete a snapshot from the storage backend. */
+export async function deleteSnapshot(
+  projectId: string,
+  commitId: string,
+  kind: SnapshotKind,
+): Promise<void> {
+  const res = await fetch(storageUrl("delete", projectId, commitId, kind), {
+    method: "POST",
+    headers: await storageHeaders(),
+  });
+  if (!res.ok) throw new Error(`snapshot delete failed (${res.status})`);
+}
+
+/**
+ * Whether the storage backend is configured. The function returns 503 until
+ * its key is set, so anything else (even a 400 for the empty probe) means it's
+ * live. Best-effort: any network error reports unavailable.
+ */
+export async function storageAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${STORAGE_ENDPOINT}?action=ping`, {
+      headers: await storageHeaders(),
+    });
+    return res.status !== 503;
+  } catch {
+    return false;
+  }
 }
