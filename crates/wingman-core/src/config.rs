@@ -134,7 +134,8 @@ impl ConfigStore {
             .map_err(|e| Error::Config(format!("serialize project_paths.json: {e}")))?;
         let tmp = self.dir.join("project_paths.json.tmp");
         let path = self.dir.join("project_paths.json");
-        fs::write(&tmp, json).map_err(|e| Error::Config(format!("write project_paths.json: {e}")))?;
+        fs::write(&tmp, json)
+            .map_err(|e| Error::Config(format!("write project_paths.json: {e}")))?;
         fs::rename(&tmp, &path)
             .map_err(|e| Error::Config(format!("write project_paths.json: {e}")))?;
         Ok(())

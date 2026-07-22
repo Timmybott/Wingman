@@ -151,7 +151,13 @@ pub async fn subscribe_server(
             let _ = app.emit(&event_name, &event);
         }
     });
-    sockets.insert(key, SocketHandle { outgoing, forwarder });
+    sockets.insert(
+        key,
+        SocketHandle {
+            outgoing,
+            forwarder,
+        },
+    );
     Ok(())
 }
 
@@ -186,10 +192,6 @@ pub async fn send_console_command(
 }
 
 // ---------------------------------------------------------------------------
-// Projects & deploy
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Per-device local folder bindings for cloud projects
 // ---------------------------------------------------------------------------
 
@@ -211,7 +213,10 @@ pub fn set_project_path(
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(false);
     git::ensure_repo(dir).map_err(|e| e.to_string())?;
-    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
     map.insert(project_id, path);
     state
         .store
@@ -222,7 +227,10 @@ pub fn set_project_path(
 
 /// The local folder bound to a project on this device, if any.
 #[tauri::command]
-pub fn get_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<Option<String>> {
+pub fn get_project_path(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> CmdResult<Option<String>> {
     Ok(state
         .store
         .load_project_paths()
@@ -234,9 +242,15 @@ pub fn get_project_path(state: State<'_, AppState>, project_id: String) -> CmdRe
 /// Remove this device's local binding for a project (does not touch files).
 #[tauri::command]
 pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
-    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
     map.remove(&project_id);
-    state.store.save_project_paths(&map).map_err(|e| e.to_string())
+    state
+        .store
+        .save_project_paths(&map)
+        .map_err(|e| e.to_string())
 }
 
 /// A path is deep enough that deleting it recursively can't hit a filesystem
@@ -256,7 +270,10 @@ pub fn remove_local_project(
     project_id: String,
     delete_files: bool,
 ) -> CmdResult<()> {
-    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
     if let Some(path) = map.remove(&project_id) {
         if delete_files {
             let dir = std::path::Path::new(&path);
