@@ -4,11 +4,13 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.1.0] — 2026-07-22
 
-Cloud collaboration — Feather is growing from a local-only app into a
-team platform backed by a free Supabase project. The deploy engine still
-runs locally on each machine; the cloud holds the shared data.
+Cloud collaboration — Feather grows from a local-only app into a team
+platform backed by a free Supabase project. The deploy engine still runs
+locally on each machine; the cloud holds the shared data. See the
+[README](README.md) for the full feature guide and
+[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md) to set up the backend.
 
 ### Added
 
@@ -65,6 +67,9 @@ runs locally on each machine; the cloud holds the shared data.
 - Team creation now goes through a `SECURITY DEFINER` function
   (`supabase/0002_team_create_rpc.sql`), fixing a row-level-security error
   that could block creating a team.
+- Panel key encryption/decryption now resolves `pgcrypto` in the
+  `extensions` schema (`supabase/0003_fix_panel_crypto.sql`), fixing a
+  "function pgp_sym_encrypt does not exist" error when saving a panel.
 
 ## [2.0.0] — 2026-07-19
 

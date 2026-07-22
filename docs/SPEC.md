@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 19. Juli 2026 · Version 0.2 (ergänzt um Deploy-Flow v2, Datenmodell, Architektur und die finalen Grundsatzentscheidungen)
+> Stand: 22. Juli 2026 · Version 0.3 (ergänzt um die Cloud- & Team-Kollaboration von v2.1 — siehe Abschnitt 10; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -175,3 +175,50 @@ ist der Rettungsanker.
 - [x] Frontend-Framework wählen (Svelte 5)
 - [x] Open-Source-Lizenz wählen (MIT)
 - [x] Repo aufsetzen + M1 (19.07.2026)
+
+---
+
+## 10. Cloud & Team-Kollaboration (v2.1)
+
+Ab v2.1 wird Feather vom lokalen Einzelplatz-Tool zur **team-fähigen, cloud-gestützten Plattform** — GitHub-artig: Konto, Team, Projekte mit Detailseite, Issues, Deploy-Historie und Planung, alles geteilt. Die **Deploy-Engine bleibt lokal** (sie braucht Dateien, Git und direkten Panel-Zugriff); die Cloud hält nur die geteilten Metadaten.
+
+### 10.1 Grundsatzentscheidungen (v2.1)
+
+| Entscheidung | Wahl | Begründung |
+|---|---|---|
+| Oberfläche | **Nur Desktop-App** (kein Web-App) | Feather bleibt die bestehende Tauri-App; jeder im Team installiert sie |
+| Datenbank | **Supabase** (kostenlos) | Postgres + eingebaute Auth + Row-Level Security + Realtime, passt aufs relationale Modell |
+| Panel-Keys | **Geteilt, in der DB verschlüsselt** | Master-Key in Supabase Vault (`pgcrypto`), Entschlüsselung nur für Team-Mitglieder; auf dem Gerät nur im RAM |
+| Credentials (ersetzt Abschnitt 2) | **Cloud-verschlüsselt statt System-Schlüsselbund** | Der lokale Keyring/Datei-Fallback aus v1 entfällt; Keys leben verschlüsselt in der Cloud |
+| Sicherheit | **RLS auf allen Tabellen + `SECURITY DEFINER`-Funktionen** | Sensible Aktionen prüfen Mitgliedschaft und stempeln den Nutzer serverseitig |
+
+### 10.2 Kollaborationsmodell
+
+- **Konto** (E-Mail-Login) → **Team** (Einheit der Zusammenarbeit) → geteilte Panels, Projekte, Historie, Issues.
+- **Mitglieder** per E-Mail einladen (Rollen owner/admin/member); der Owner ist geschützt.
+- **RLS** stellt sicher, dass man nur Daten der eigenen Teams sieht.
+
+### 10.3 Cloud-Datenmodell (Supabase, `supabase/0001`–`0006`)
+
+- `profiles` (1:1 zu Auth-User), `teams`, `team_members` (Rollen)
+- `panels` (Pterodactyl-Verbindungen, `api_key_encrypted` als bytea)
+- `projects` (Name, Beschreibung, optional Panel/Server, Deploy-Optionen)
+- `deploys` (Historie: kind, status, commit, files, Nutzer, Zeit)
+- `issues` + `issue_comments` (pro Projekt nummeriert, open/closed)
+- Funktionen: `create_team`, `create_panel`/`panel_api_key`, `invite_member`/`remove_member`, `record_deploy`, `create_issue`/`add_issue_comment` — alle `SECURITY DEFINER` mit Mitgliedschaftsprüfung.
+
+### 10.4 Meilensteine (v2.1)
+
+- **M6 — Konten & Teams** ✅: E-Mail-Login, Team anlegen/wählen, App-Gate (Auth → Team → App)
+- **M7 — Geteilte, verschlüsselte Panels** ✅: mehrere Panels pro Team, Key verschlüsselt in der DB, auf dem Gerät nur im RAM (lokaler Keyring entfernt)
+- **M8 — Cloud-Projekte** ✅: geteilte Projektliste + Beschreibungen, Tab-Leiste Projects/Panels; **M8b** Mitglieder-Verwaltung
+- **M9 — Projekt-Detailseite** ✅: GitHub-artige Seite (Overview/Settings, später Issues/Deploys)
+- **M10 — Deploy-Historie** ✅: jeder Deploy/Rollback wird pro Projekt aufgezeichnet und angezeigt
+- **M11 — Issues** ✅: Issue-Tracker pro Projekt mit Kommentaren, open/closed
+- **M12 — Planning (Markdown)** ✅: Beschreibungen/Issues/Kommentare als Markdown, interaktive `- [ ]`-Checklisten; eigener, escapender Renderer (kein Roh-HTML)
+
+### 10.5 Sicherheit
+
+- API-Keys nur verschlüsselt gespeichert (Vault-Master-Key), Entschlüsselung ausschließlich für Mitglieder; auf dem Gerät nur im Speicher, nie auf Platte.
+- Anon/Public-Key + Projekt-URL dürfen in der App liegen (Schutz über RLS, nicht über Geheimhaltung); Service-Role-Key und DB-Passwort niemals in die App.
+- Der Markdown-Renderer escaped jede Eingabe und lässt nur `http(s)`/`mailto`-Links zu.

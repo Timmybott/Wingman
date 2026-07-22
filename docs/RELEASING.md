@@ -24,13 +24,17 @@ The auto-updater only installs updates signed with the project's key.
 
 1. Bump the version in `Cargo.toml` (workspace), `package.json` and
    `src-tauri/tauri.conf.json` — keep all three identical.
-2. Update the changelog section in the GitHub release notes (the release
-   workflow creates a draft you can edit).
-3. Tag and push:
+2. Update `CHANGELOG.md`: turn the top section into the new version with
+   today's date. The release notes on GitHub can reuse it.
+3. If the release adds or changes cloud features, ship any new SQL migration
+   in `supabase/` and note in the release that users must run it (see
+   `docs/CLOUD-SETUP.md`). Migrations are idempotent and run by the user in
+   the Supabase SQL editor — they are not part of the built app.
+4. Tag and push:
 
    ```sh
-   git tag v0.5.0
-   git push origin v0.5.0
+   git tag v2.1.0
+   git push origin v2.1.0
    ```
 
 4. The **Release** workflow builds:
