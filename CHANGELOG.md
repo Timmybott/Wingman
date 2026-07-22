@@ -33,6 +33,11 @@ runs locally on each machine; the cloud holds the shared data.
   admins/owners, add teammates by email or remove them. The team owner is
   always protected. New teammates immediately share the team's projects,
   panels and history.
+- **Project detail page** — clicking a project opens a GitHub-style page with
+  an **Overview** (an editable "About" description plus a sidebar showing the
+  linked panel, server, deploy target, post-deploy behaviour, and who created
+  it when) and a **Settings** tab to edit every field, with a delete
+  danger-zone. The tab bar is where Issues, Deploys and Planning will live.
 
 ### Changed
 

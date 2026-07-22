@@ -2,10 +2,12 @@
   import { onMount } from "svelte";
   import {
     createProject,
+    listMembers,
     listPanels,
     listProjects,
     type CloudPanel,
     type CloudProject,
+    type TeamMember,
   } from "../cloud";
   import ProjectDetail from "./ProjectDetail.svelte";
 
@@ -13,6 +15,7 @@
 
   let projects = $state<CloudProject[]>([]);
   let panels = $state<CloudPanel[]>([]);
+  let members = $state<TeamMember[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let selectedId = $state<string | null>(null);
@@ -30,7 +33,11 @@
     loading = true;
     error = null;
     try {
-      [projects, panels] = await Promise.all([listProjects(teamId), listPanels(teamId)]);
+      [projects, panels, members] = await Promise.all([
+        listProjects(teamId),
+        listPanels(teamId),
+        listMembers(teamId),
+      ]);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
     } finally {
@@ -85,6 +92,7 @@
   <ProjectDetail
     project={selected}
     {panels}
+    {members}
     onBack={() => (selectedId = null)}
     {onChanged}
     {onDeleted}
