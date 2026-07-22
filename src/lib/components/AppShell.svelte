@@ -4,7 +4,15 @@
   import { onMount } from "svelte";
   import { clearActivePanel, getProjectPath, removeLocalProject, setActivePanel } from "../api";
   import { auth } from "../auth.svelte";
-  import { listPanels, listProjectDeletions, panelApiKey, type CloudPanel, type Team } from "../cloud";
+  import {
+    listPanels,
+    listProjectDeletions,
+    listProjects,
+    panelApiKey,
+    type CloudPanel,
+    type CloudProject,
+    type Team,
+  } from "../cloud";
   import { teamState } from "../team.svelte";
   import Footer from "./Footer.svelte";
   import Header from "./Header.svelte";
@@ -35,9 +43,13 @@
   let profileReturn = $state<"projects" | "panels" | "members">("projects");
   let panels = $state<CloudPanel[]>([]);
   let connected = $state<CloudPanel[]>([]);
+  let projects = $state<CloudProject[]>([]);
   let connecting = $state(true);
   let managing = $state(false);
   let update = $state<Update | null>(null);
+  // A project to open when switching to the Projects tab (e.g. from a server
+  // tile in Panels). Consumed and cleared by ProjectsScreen.
+  let focusProjectId = $state<string | null>(null);
   // A pending "reveal this server in the Panels tab" request. Set when the
   // user clicks through from a project; ServersView scrolls to and highlights
   // the matching tile. A fresh object each time so repeat clicks re-trigger.
@@ -103,9 +115,22 @@
       }
       panels = all;
       connected = ok;
+      // Load projects too, so the Panels tab can mark servers that have one.
+      try {
+        projects = await listProjects(teamId);
+      } catch {
+        projects = [];
+      }
     } finally {
       connecting = false;
     }
+  }
+
+  /** Open the Projects tab focused on a specific project (from a server tile). */
+  function goToProject(projectId: string) {
+    managing = false;
+    focusProjectId = projectId;
+    view = "projects";
   }
 
   /**
@@ -179,6 +204,8 @@
         <ProjectsScreen
           {teamId}
           {teamName}
+          openProjectId={focusProjectId}
+          onConsumedFocus={() => (focusProjectId = null)}
           onOpenServer={goToServer}
           onOpenTeam={openTeamProfile}
           onOpenProfile={openProfile}
@@ -202,8 +229,10 @@
         {#key connectedKey}
           <ServersView
             panels={connected.map((p) => ({ id: p.id, name: p.name }))}
+            {projects}
             {focusServer}
             onManage={() => (managing = true)}
+            onOpenProject={goToProject}
           />
         {/key}
       {/if}

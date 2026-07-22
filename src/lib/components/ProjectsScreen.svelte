@@ -14,12 +14,16 @@
   let {
     teamId,
     teamName,
+    openProjectId = null,
+    onConsumedFocus,
     onOpenServer,
     onOpenTeam,
     onOpenProfile,
   }: {
     teamId: string;
     teamName: string;
+    openProjectId?: string | null;
+    onConsumedFocus?: () => void;
     onOpenServer: (panelId: string, identifier: string) => void;
     onOpenTeam: () => void;
     onOpenProfile: (userId: string) => void;
@@ -52,6 +56,15 @@
   }
 
   onMount(load);
+
+  // Open a project requested from elsewhere (e.g. a server tile in Panels),
+  // once it's loaded.
+  $effect(() => {
+    if (openProjectId && projects.some((p) => p.id === openProjectId)) {
+      selectedId = openProjectId;
+      onConsumedFocus?.();
+    }
+  });
 
   function panelName(id: string | null): string | null {
     return id ? (panels.find((p) => p.id === id)?.name ?? null) : null;

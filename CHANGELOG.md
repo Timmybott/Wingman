@@ -8,6 +8,9 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Panels tab: disk usage & project shortcuts.** Each server tile now shows a
+  **Disk** meter alongside CPU and RAM. Servers that have a Feather project are
+  marked with a project chip you can click to **jump straight to that project**.
 - **Edit server files in place.** In a project's **Files** tab, click a file to
   open it in an editor and save changes straight back to the server — work
   directly on the server without a local copy. Text files up to ~1 MB;
