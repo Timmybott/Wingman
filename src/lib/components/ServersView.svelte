@@ -166,7 +166,10 @@
   {#if loading}
     <p class="muted center">Loading servers…</p>
   {:else if panels.length === 0}
-    <p class="muted center empty">No panels connected. Add one under “Manage panels”.</p>
+    <div class="empty">
+      <p class="muted">A team needs at least one Pterodactyl panel. Add one to see and manage its servers here.</p>
+      <button class="primary" onclick={onManage}>Add a panel</button>
+    </div>
   {:else}
     {#each grouped as group (group.panel.id)}
       <section class="panel-group">
@@ -254,6 +257,15 @@
   }
 
   .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
     padding: 40px 0;
+  }
+
+  .empty p {
+    max-width: 420px;
   }
 </style>

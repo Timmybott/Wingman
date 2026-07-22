@@ -68,10 +68,15 @@ Then run [`supabase/0005_deploys.sql`](../supabase/0005_deploys.sql) in a
 function, so each project's Deploys tab can show who deployed what and when.
 Also idempotent.
 
-Last, run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
+Then run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
 **new query**. It adds the issues and comments tables (and the `create_issue`
 / `add_issue_comment` functions) that power each project's Issues tab. Also
 idempotent.
+
+Last, run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
+in a **new query**. It adds the tombstone table and `request_project_deletion`
+function used by "delete everywhere", so a deleted project is also removed from
+every teammate's machine. Also idempotent.
 
 ## 4. Turn on email login
 

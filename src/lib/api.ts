@@ -107,6 +107,16 @@ export function removeProjectPath(projectId: string): Promise<void> {
 }
 
 /**
+ * Remove a project from this device: drop its binding and deploy record, and
+ * when `deleteFiles` is true, delete the bound folder recursively. Used for
+ * "remove from Feather" (deleteFiles false) and for processing a
+ * "delete everywhere" tombstone (deleteFiles true).
+ */
+export function removeLocalProject(projectId: string, deleteFiles: boolean): Promise<void> {
+  return invoke<void>("remove_local_project", { projectId, deleteFiles });
+}
+
+/**
  * The engine takes the full project config (built from the cloud project plus
  * this device's local folder), so it needs no local project store.
  */

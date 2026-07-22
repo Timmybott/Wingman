@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     deleteProject,
+    requestProjectDeletion,
     updateProject,
     type CloudPanel,
     type CloudProject,
@@ -8,7 +9,12 @@
     type TeamMember,
   } from "../cloud";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { getProjectPath, removeProjectPath, setProjectPath } from "../api";
+  import {
+    getProjectPath,
+    removeLocalProject,
+    removeProjectPath,
+    setProjectPath,
+  } from "../api";
   import { toggleTaskInMarkdown } from "../markdown";
   import DeployPanel from "./DeployPanel.svelte";
   import FileBrowser from "./FileBrowser.svelte";
@@ -52,7 +58,7 @@
   let autoBackup = $state(true);
   let savingSettings = $state(false);
 
-  let confirmingDelete = $state(false);
+  let dangerMode = $state<null | "feather" | "everywhere">(null);
   let deleting = $state(false);
 
   // Per-device local folder binding.
@@ -174,11 +180,27 @@
     }
   }
 
-  async function remove() {
+  /** Delete the cloud project; keep local files on every device. */
+  async function removeFromFeather() {
     deleting = true;
     error = null;
     try {
       await deleteProject(project.id);
+      await removeLocalProject(project.id, false);
+      onDeleted(project.id);
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+      deleting = false;
+    }
+  }
+
+  /** Tombstone + delete the project, and delete local folders everywhere. */
+  async function deleteEverywhere() {
+    deleting = true;
+    error = null;
+    try {
+      await requestProjectDeletion(project.id);
+      await removeLocalProject(project.id, true);
       onDeleted(project.id);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
@@ -319,7 +341,7 @@
         <div class="field">
           <label for="s-panel">Panel</label>
           <select id="s-panel" bind:value={panelId}>
-            <option value="">— none —</option>
+            <option value="" disabled>Select a panel…</option>
             {#each panels as p (p.id)}
               <option value={p.id}>{p.name}</option>
             {/each}
@@ -361,12 +383,41 @@
       </div>
 
       <div class="danger-zone">
-        {#if confirmingDelete}
-          <span class="muted">Delete this project for the whole team?</span>
-          <button type="button" class="ghost" onclick={() => (confirmingDelete = false)} disabled={deleting}>Cancel</button>
-          <button type="button" class="danger-btn" onclick={remove} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
+        <h3>Danger zone</h3>
+        {#if dangerMode === null}
+          <div class="danger-row">
+            <div class="danger-text">
+              <strong>Remove from Feather</strong>
+              <p class="muted">Deletes the project, its issues and deploy history for the team. Local files on every device are kept.</p>
+            </div>
+            <button type="button" class="ghost danger" onclick={() => (dangerMode = "feather")}>Remove</button>
+          </div>
+          <div class="danger-row">
+            <div class="danger-text">
+              <strong>Delete everywhere</strong>
+              <p class="muted">Also deletes the linked local folder on every teammate's machine on their next launch. Permanent.</p>
+            </div>
+            <button type="button" class="ghost danger" onclick={() => (dangerMode = "everywhere")}>Delete everywhere</button>
+          </div>
+        {:else if dangerMode === "feather"}
+          <p>Remove “{project.name}” from Feather? Local files stay on every device.</p>
+          <div class="row-actions">
+            <button type="button" class="ghost" onclick={() => (dangerMode = null)} disabled={deleting}>Cancel</button>
+            <button type="button" class="danger-btn" onclick={removeFromFeather} disabled={deleting}>
+              {deleting ? "Removing…" : "Remove from Feather"}
+            </button>
+          </div>
         {:else}
-          <button type="button" class="ghost danger" onclick={() => (confirmingDelete = true)}>Delete project</button>
+          <p>
+            Delete “{project.name}” <strong>everywhere</strong>, including the linked local folder on
+            every teammate's device? This cannot be undone.
+          </p>
+          <div class="row-actions">
+            <button type="button" class="ghost" onclick={() => (dangerMode = null)} disabled={deleting}>Cancel</button>
+            <button type="button" class="danger-btn" onclick={deleteEverywhere} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete everywhere"}
+            </button>
+          </div>
         {/if}
       </div>
     </form>
@@ -582,12 +633,42 @@
   }
 
   .danger-zone {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     margin-top: 26px;
     padding-top: 18px;
     border-top: 1px solid var(--border);
+  }
+
+  .danger-zone h3 {
+    color: var(--danger, #f87171);
+    margin-bottom: 12px;
+  }
+
+  .danger-zone > p {
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+
+  .danger-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+  }
+
+  .danger-row + .danger-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .danger-text p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+    max-width: 46ch;
+  }
+
+  .danger-row .danger {
+    flex-shrink: 0;
   }
 
   .danger:hover {

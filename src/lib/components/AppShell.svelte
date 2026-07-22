@@ -2,8 +2,8 @@
   import { relaunch } from "@tauri-apps/plugin-process";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { onMount } from "svelte";
-  import { clearActivePanel, setActivePanel } from "../api";
-  import { listPanels, panelApiKey, type CloudPanel } from "../cloud";
+  import { clearActivePanel, getProjectPath, removeLocalProject, setActivePanel } from "../api";
+  import { listPanels, listProjectDeletions, panelApiKey, type CloudPanel } from "../cloud";
   import { teamState } from "../team.svelte";
   import Footer from "./Footer.svelte";
   import Header from "./Header.svelte";
@@ -68,8 +68,27 @@
     }
   }
 
+  /**
+   * Act on "delete everywhere" tombstones: for any project the team has
+   * tombstoned that still has a local folder on this device, delete that
+   * folder and forget the project. Best effort — never blocks the app.
+   */
+  async function processProjectDeletions() {
+    if (!teamId) return;
+    try {
+      const tombstoned = await listProjectDeletions(teamId);
+      for (const projectId of tombstoned) {
+        const path = await getProjectPath(projectId);
+        if (path) await removeLocalProject(projectId, true);
+      }
+    } catch (e) {
+      console.error("could not process project deletions:", e);
+    }
+  }
+
   onMount(() => {
     void loadAndConnect();
+    void processProjectDeletions();
     void (async () => {
       try {
         update = await check();

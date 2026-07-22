@@ -239,6 +239,40 @@ pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> Cm
     state.store.save_project_paths(&map).map_err(|e| e.to_string())
 }
 
+/// A path is deep enough that deleting it recursively can't hit a filesystem
+/// root or a bare home directory (e.g. `/`, `/home`, `/home/user`). Guards the
+/// "delete everywhere" tombstone action.
+fn safe_to_delete(dir: &std::path::Path) -> bool {
+    dir.components().count() >= 4
+}
+
+/// Remove a project from this device: drop its binding and deploy record, and
+/// — when `delete_files` — recursively delete the bound folder. Used for
+/// "Remove from Feather" (files kept) and for processing a "delete everywhere"
+/// tombstone (files deleted). Best effort; a missing folder is not an error.
+#[tauri::command]
+pub fn remove_local_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    delete_files: bool,
+) -> CmdResult<()> {
+    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    if let Some(path) = map.remove(&project_id) {
+        if delete_files {
+            let dir = std::path::Path::new(&path);
+            if dir.is_dir() && safe_to_delete(dir) {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+    state
+        .store
+        .save_project_paths(&map)
+        .map_err(|e| e.to_string())?;
+    let _ = state.store.delete_deploy_record(&project_id);
+    Ok(())
+}
+
 /// Kick off a deploy. Progress is emitted as `deploy-event-{project_id}`
 /// Tauri events; a second deploy of the same project while one is running
 /// is rejected. Desktop notifications fire on failure, and on success when

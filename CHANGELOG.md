@@ -6,8 +6,16 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
-Reworking the app around a clearer split: **Panels** for live server operation,
-**Projects** for planning and deploying. In progress.
+Reworked the app around a clearer split: **Panels** for live server operation,
+**Projects** for planning and deploying.
+
+### Added
+
+- **Two ways to delete a project.** *Remove from Feather* deletes the project
+  (and its issues and history) for the team but keeps everyone's local files.
+  *Delete everywhere* also removes the linked local folder on every teammate's
+  machine — a tombstone (`supabase/0007`) is recorded and each Feather acts on
+  it at launch. A safety guard refuses to delete shallow paths.
 
 ### Changed
 
