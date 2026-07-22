@@ -1,12 +1,12 @@
-//! Thin Tauri shell over `wingman-core`: window setup, managed state and the
+//! Thin Tauri shell over `feather-core`: window setup, managed state and the
 //! IPC commands the Svelte frontend calls.
 
 mod commands;
 
 use commands::{ActivePanel, SocketHandle};
+use feather_core::ConfigStore;
 use std::collections::HashMap;
 use tauri::Manager;
-use wingman_core::ConfigStore;
 
 pub struct AppState {
     store: ConfigStore,

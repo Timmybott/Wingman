@@ -1,4 +1,4 @@
-// Mirrors the serde models in crates/wingman-core/src/{models,config}.rs.
+// Mirrors the serde models in crates/feather-core/src/{models,config}.rs.
 
 export interface PanelConfig {
   id: string;
@@ -58,7 +58,7 @@ export type PowerSignal = "start" | "stop" | "restart" | "kill";
 
 export type PostDeployAction = "restart" | "notify";
 
-/** Mirrors wingman_core::config::ProjectConfig. */
+/** Mirrors feather_core::config::ProjectConfig. */
 export interface ProjectConfig {
   id: string;
   name: string;
@@ -71,7 +71,7 @@ export interface ProjectConfig {
   auto_backup: boolean;
 }
 
-/** Mirrors wingman_core::deploy::DeployStep (serde tag "step"). */
+/** Mirrors feather_core::deploy::DeployStep (serde tag "step"). */
 export type DeployStep =
   | { step: "committing" }
   | { step: "checking_out" }
@@ -90,7 +90,7 @@ export type DeployStep =
   | { step: "done"; files: number; deleted: number }
   | { step: "failed"; message: string };
 
-/** Mirrors wingman_core::git::CommitInfo. */
+/** Mirrors feather_core::git::CommitInfo. */
 export interface CommitInfo {
   id: string;
   short_id: string;
@@ -150,7 +150,7 @@ export interface LiveState {
   connected: boolean;
 }
 
-/** Mirrors wingman_core::ws::ServerEvent (serde tag/content). */
+/** Mirrors feather_core::ws::ServerEvent (serde tag/content). */
 export type ServerEvent =
   | { type: "connected" }
   | { type: "status"; data: PowerState }

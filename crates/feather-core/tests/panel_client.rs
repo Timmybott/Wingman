@@ -1,8 +1,8 @@
-//! Integration tests: wingman-core's PanelClient against the mock panel.
+//! Integration tests: feather-core's PanelClient against the mock panel.
 
+use feather_core::models::PowerState;
+use feather_core::{Error, PanelClient};
 use mock_panel::MockPanel;
-use wingman_core::models::PowerState;
-use wingman_core::{Error, PanelClient};
 
 #[tokio::test]
 async fn lists_all_servers_across_pages() {

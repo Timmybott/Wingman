@@ -74,7 +74,7 @@ Dazu: **`.deployignore`** (gitignore-Syntax) — bei „immer alles hochladen" p
 ### 6.1 Repository-Struktur
 
 ```
-crates/wingman-core/   Panel-API-Client (reqwest), Deploy-Engine, git2, Zip,
+crates/feather-core/   Panel-API-Client (reqwest), Deploy-Engine, git2, Zip,
                        .deployignore, Datenmodell — KEINE Tauri-Abhängigkeit
 crates/mock-panel/     Mock der Pterodactyl Client-API (axum) für Tests + Dev
 src-tauri/             Tauri-2-Shell: Fenster, IPC-Commands, Schlüsselbund

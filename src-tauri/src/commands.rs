@@ -2,18 +2,18 @@
 //! strings, so every command maps core errors with `to_string()`.
 
 use crate::AppState;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
-use tokio::sync::mpsc;
-use wingman_core::deploy::{start_deploy, start_rollback, DeployStep};
-use wingman_core::git;
-use wingman_core::models::{FileEntry, PowerSignal, Server, ServerStats};
-use wingman_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
-use wingman_core::ws::Outgoing;
-use wingman_core::{
+use feather_core::deploy::{start_deploy, start_rollback, DeployStep};
+use feather_core::git;
+use feather_core::models::{FileEntry, PowerSignal, Server, ServerStats};
+use feather_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
+use feather_core::ws::Outgoing;
+use feather_core::{
     normalize_base_url, CommitInfo, DeployHandle, PanelClient, PostDeployAction, ProjectConfig,
     RepoStatus, ServerSocket,
 };
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
+use tokio::sync::mpsc;
 
 type CmdResult<T> = Result<T, String>;
 
@@ -381,7 +381,7 @@ pub async fn check_remote_deploy(
     let newer = is_newer(&remote, record.as_ref());
     let dirty = if newer {
         let path = project.local_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<bool, wingman_core::Error> {
+        tokio::task::spawn_blocking(move || -> Result<bool, feather_core::Error> {
             git::ensure_repo(&path)?;
             Ok(git::status(&path)?.dirty)
         })

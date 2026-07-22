@@ -1,12 +1,12 @@
 //! Integration tests: ServerSocket (Wings websocket client) against the mock
 //! panel's websocket implementation.
 
+use feather_core::models::{PowerSignal, PowerState};
+use feather_core::ws::{Outgoing, ServerEvent, ServerSocket};
+use feather_core::PanelClient;
 use mock_panel::{MockPanel, MockPanelOptions, API_KEY};
 use std::time::Duration;
 use tokio::time::timeout;
-use wingman_core::models::{PowerSignal, PowerState};
-use wingman_core::ws::{Outgoing, ServerEvent, ServerSocket};
-use wingman_core::PanelClient;
 
 async fn next(socket: &mut ServerSocket) -> ServerEvent {
     timeout(Duration::from_secs(10), socket.events.recv())

@@ -1,4 +1,4 @@
-/// Errors produced by wingman-core. Messages are user-facing: the Tauri shell
+/// Errors produced by feather-core. Messages are user-facing: the Tauri shell
 /// forwards them to the frontend via `to_string()`.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

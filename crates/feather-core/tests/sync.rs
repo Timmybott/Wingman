@@ -1,13 +1,13 @@
 //! Integration tests for server → local sync: initial import on link and
 //! multi-device sync via the remote state marker.
 
+use feather_core::deploy::{start_deploy, DeployStep};
+use feather_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
+use feather_core::{git, ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
 use mock_panel::{MockPanel, API_KEY};
 use std::path::Path;
 use std::time::Duration;
 use tokio::time::timeout;
-use wingman_core::deploy::{start_deploy, DeployStep};
-use wingman_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
-use wingman_core::{git, ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
 
 const SERVER: &str = "a1b2c3d4";
 
@@ -31,7 +31,7 @@ fn project(id: &str, local: &Path) -> ProjectConfig {
     }
 }
 
-async fn drive(mut handle: wingman_core::DeployHandle) -> Vec<DeployStep> {
+async fn drive(mut handle: feather_core::DeployHandle) -> Vec<DeployStep> {
     let mut steps = Vec::new();
     loop {
         let step = timeout(Duration::from_secs(15), handle.events.recv())

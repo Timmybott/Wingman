@@ -64,7 +64,7 @@ impl PanelClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         let http = reqwest::Client::builder()
             .default_headers(headers)
-            .user_agent(concat!("wingman/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("feather/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { base, http })
     }

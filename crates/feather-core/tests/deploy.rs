@@ -1,13 +1,13 @@
 //! Integration tests: the deploy engine against the mock panel's virtual
 //! filesystem.
 
+use feather_core::deploy::{start_deploy, start_rollback, DeployStep, BACKUP_PREFIX};
+use feather_core::models::PowerState;
+use feather_core::{git, ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
 use mock_panel::{MockPanel, API_KEY};
 use std::path::Path;
 use std::time::Duration;
 use tokio::time::timeout;
-use wingman_core::deploy::{start_deploy, start_rollback, DeployStep, BACKUP_PREFIX};
-use wingman_core::models::PowerState;
-use wingman_core::{git, ConfigStore, PanelClient, PostDeployAction, ProjectConfig};
 
 const SERVER: &str = "a1b2c3d4";
 
@@ -43,7 +43,7 @@ fn project(local: &Path, target_dir: &str, post_deploy: PostDeployAction) -> Pro
 }
 
 /// Drive an engine handle to its terminal event, collecting every step.
-async fn drive(mut handle: wingman_core::DeployHandle) -> Vec<DeployStep> {
+async fn drive(mut handle: feather_core::DeployHandle) -> Vec<DeployStep> {
     let mut steps = Vec::new();
     loop {
         let step = timeout(Duration::from_secs(15), handle.events.recv())
@@ -95,7 +95,7 @@ fn visible_files(panel: &MockPanel, server: &str) -> Vec<String> {
     panel
         .server_files(server)
         .into_iter()
-        .filter(|f| !f.ends_with(wingman_core::sync::STATE_FILE))
+        .filter(|f| !f.ends_with(feather_core::sync::STATE_FILE))
         .collect()
 }
 
@@ -483,7 +483,7 @@ async fn file_listing_reflects_a_deploy() {
     let root = client.list_files(SERVER, "/").await.unwrap();
     let names: Vec<(&str, bool)> = root
         .iter()
-        .filter(|e| e.name != wingman_core::sync::STATE_FILE)
+        .filter(|e| e.name != feather_core::sync::STATE_FILE)
         .map(|e| (e.name.as_str(), e.is_file))
         .collect();
     assert_eq!(names, vec![("config", false), ("index.js", true)]);
@@ -491,7 +491,7 @@ async fn file_listing_reflects_a_deploy() {
     // The sync marker itself is part of the listing.
     assert!(root
         .iter()
-        .any(|e| e.name == wingman_core::sync::STATE_FILE));
+        .any(|e| e.name == feather_core::sync::STATE_FILE));
 
     let sub = client.list_files(SERVER, "/config").await.unwrap();
     assert_eq!(sub.len(), 1);

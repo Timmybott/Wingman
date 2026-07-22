@@ -291,7 +291,7 @@ cargo run -p mock-panel
 
 | Path | Contents |
 |---|---|
-| `crates/wingman-core` | Panel API client, config, git and the deploy engine — no Tauri dependency, fully testable headless |
+| `crates/feather-core` | Panel API client, config, git and the deploy engine — no Tauri dependency, fully testable headless |
 | `crates/mock-panel` | A mock of the Pterodactyl client API for tests and local development |
 | `src-tauri` | Tauri 2 shell: window, IPC commands, multiple in-memory panel connections, per-device project-folder bindings |
 | `src` | Svelte 5 + TypeScript frontend (UI, Supabase client, cloud helpers, Markdown renderer) |

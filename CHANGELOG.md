@@ -4,6 +4,15 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Completed the rename from the project's old codename to **Feather**: the
+  Rust core crate is now `feather-core` (was `wingman-core`), and the HTTP
+  user-agent, gradient id and internal comments no longer reference the old
+  name. Deploy backups were already named `feather-pre-deploy-*`.
+
 ## [2.2.0] — 2026-07-22
 
 Reworked the app around a clearer split: **Panels** for live server operation,
