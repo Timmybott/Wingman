@@ -22,41 +22,54 @@ export function testConnection(baseUrl: string, apiKey: string): Promise<number>
 }
 
 /**
- * Connect a team panel for this session. The decrypted key (fetched from the
- * cloud via panelApiKey) is held in memory by the Rust core, never on disk.
+ * Connect a team panel for this session, keyed by its cloud panel id. The
+ * decrypted key (fetched via panelApiKey) is held in memory by the Rust core,
+ * never on disk. Several panels can be connected at once.
  */
-export function setActivePanel(baseUrl: string, apiKey: string): Promise<void> {
-  return invoke<void>("set_active_panel", { baseUrl, apiKey });
+export function setActivePanel(
+  panelId: string,
+  baseUrl: string,
+  apiKey: string,
+): Promise<void> {
+  return invoke<void>("set_active_panel", { panelId, baseUrl, apiKey });
 }
 
-/** Disconnect the active panel and tear down its live sockets. */
-export function clearActivePanel(): Promise<void> {
-  return invoke<void>("clear_active_panel");
+/** Disconnect one panel and tear down its live sockets. */
+export function clearActivePanel(panelId: string): Promise<void> {
+  return invoke<void>("clear_active_panel", { panelId });
 }
 
-export function listServers(): Promise<Server[]> {
-  return invoke<Server[]>("list_servers");
+export function listServers(panelId: string): Promise<Server[]> {
+  return invoke<Server[]>("list_servers", { panelId });
 }
 
-export function serverResources(identifier: string): Promise<ServerStats> {
-  return invoke<ServerStats>("server_resources", { identifier });
+export function serverResources(panelId: string, identifier: string): Promise<ServerStats> {
+  return invoke<ServerStats>("server_resources", { panelId, identifier });
 }
 
-export function setPower(identifier: string, signal: PowerSignal): Promise<void> {
-  return invoke<void>("set_power", { identifier, signal });
+export function setPower(
+  panelId: string,
+  identifier: string,
+  signal: PowerSignal,
+): Promise<void> {
+  return invoke<void>("set_power", { panelId, identifier, signal });
 }
 
 /** Open the server's websocket in the Rust core (idempotent). */
-export function subscribeServer(identifier: string): Promise<void> {
-  return invoke<void>("subscribe_server", { identifier });
+export function subscribeServer(panelId: string, identifier: string): Promise<void> {
+  return invoke<void>("subscribe_server", { panelId, identifier });
 }
 
-export function unsubscribeServer(identifier: string): Promise<void> {
-  return invoke<void>("unsubscribe_server", { identifier });
+export function unsubscribeServer(panelId: string, identifier: string): Promise<void> {
+  return invoke<void>("unsubscribe_server", { panelId, identifier });
 }
 
-export function sendConsoleCommand(identifier: string, command: string): Promise<void> {
-  return invoke<void>("send_console_command", { identifier, command });
+export function sendConsoleCommand(
+  panelId: string,
+  identifier: string,
+  command: string,
+): Promise<void> {
+  return invoke<void>("send_console_command", { panelId, identifier, command });
 }
 
 /**
@@ -64,10 +77,13 @@ export function sendConsoleCommand(identifier: string, command: string): Promise
  * subscribeServer so the initial Connected/Status burst is not missed.
  */
 export function onServerEvent(
+  panelId: string,
   identifier: string,
   handler: (event: ServerEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<ServerEvent>(`server-event-${identifier}`, (e) => handler(e.payload));
+  return listen<ServerEvent>(`server-event-${panelId}-${identifier}`, (e) =>
+    handler(e.payload),
+  );
 }
 
 export function listProjects(): Promise<ProjectConfig[]> {
@@ -130,24 +146,27 @@ export function deployStatus(projectId: string): Promise<DeployStatus> {
 }
 
 export function listServerFiles(
+  panelId: string,
   identifier: string,
   directory: string,
 ): Promise<FileEntry[]> {
-  return invoke<FileEntry[]>("list_server_files", { identifier, directory });
+  return invoke<FileEntry[]>("list_server_files", { panelId, identifier, directory });
 }
 
 export function deleteServerFiles(
+  panelId: string,
   identifier: string,
   root: string,
   files: string[],
 ): Promise<void> {
-  return invoke<void>("delete_server_files", { identifier, root, files });
+  return invoke<void>("delete_server_files", { panelId, identifier, root, files });
 }
 
 export function createServerFolder(
+  panelId: string,
   identifier: string,
   root: string,
   name: string,
 ): Promise<void> {
-  return invoke<void>("create_server_folder", { identifier, root, name });
+  return invoke<void>("create_server_folder", { panelId, identifier, root, name });
 }

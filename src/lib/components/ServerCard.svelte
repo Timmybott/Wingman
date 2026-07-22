@@ -12,8 +12,9 @@
   let {
     server,
     live,
-    project,
-    deploy,
+    project = null,
+    deploy = null,
+    opsOnly = false,
     onPower,
     onOpenConsole,
     onDeploy,
@@ -23,14 +24,17 @@
   }: {
     server: Server;
     live: LiveState;
-    project: ProjectConfig | null;
-    deploy: DeployStep | null;
+    project?: ProjectConfig | null;
+    deploy?: DeployStep | null;
+    /** Panels tab: show only live-server ops (power + console), no project/
+     *  deploy/history/files — those live on the project in the Projects tab. */
+    opsOnly?: boolean;
     onPower: (signal: PowerSignal) => Promise<void>;
     onOpenConsole: () => void;
-    onDeploy: () => void;
-    onConfigureProject: () => void;
-    onOpenHistory: () => void;
-    onOpenFiles: () => void;
+    onDeploy?: () => void;
+    onConfigureProject?: () => void;
+    onOpenHistory?: () => void;
+    onOpenFiles?: () => void;
   } = $props();
 
   let busy = $state(false);
@@ -211,27 +215,29 @@
   {/if}
 
   <div class="card-actions">
-    {#if project}
-      <button
-        class="primary deploy"
-        onclick={onDeploy}
-        disabled={deployRunning}
-        title="Deploy {project.name} to this server"
-      >
-        Deploy
-      </button>
-      <button
-        class="ghost"
-        onclick={onConfigureProject}
-        disabled={deployRunning}
-        title="Project settings"
-      >
-        ⚙
-      </button>
-    {:else}
-      <button class="primary deploy" onclick={onConfigureProject} title="Link a local project folder">
-        Link project…
-      </button>
+    {#if !opsOnly}
+      {#if project}
+        <button
+          class="primary deploy"
+          onclick={onDeploy}
+          disabled={deployRunning}
+          title="Deploy {project.name} to this server"
+        >
+          Deploy
+        </button>
+        <button
+          class="ghost"
+          onclick={onConfigureProject}
+          disabled={deployRunning}
+          title="Project settings"
+        >
+          ⚙
+        </button>
+      {:else}
+        <button class="primary deploy" onclick={onConfigureProject} title="Link a local project folder">
+          Link project…
+        </button>
+      {/if}
     {/if}
     {#if canStart}
       <button onclick={() => power("start")} disabled={busy} title="Start server">▶</button>
@@ -257,15 +263,17 @@
       </button>
     {/if}
     <button class="ghost" onclick={onOpenConsole}>Console</button>
-    <button
-      class="ghost"
-      onclick={onOpenHistory}
-      disabled={!project}
-      title={project ? "Commit history & rollback" : "Link a project first"}
-    >
-      History
-    </button>
-    <button class="ghost" onclick={onOpenFiles} title="Browse server files">Files</button>
+    {#if !opsOnly}
+      <button
+        class="ghost"
+        onclick={onOpenHistory}
+        disabled={!project}
+        title={project ? "Commit history & rollback" : "Link a project first"}
+      >
+        History
+      </button>
+      <button class="ghost" onclick={onOpenFiles} title="Browse server files">Files</button>
+    {/if}
   </div>
 </article>
 

@@ -3,7 +3,11 @@
   import { formatBytes } from "../format";
   import type { FileEntry, Server } from "../types";
 
-  let { server, onClose }: { server: Server; onClose: () => void } = $props();
+  let {
+    panelId,
+    server,
+    onClose,
+  }: { panelId: string; server: Server; onClose: () => void } = $props();
 
   let segments = $state<string[]>([]);
   let entries = $state<FileEntry[]>([]);
@@ -20,7 +24,7 @@
     error = null;
     armedDelete = null;
     try {
-      entries = await listServerFiles(server.identifier, currentDir);
+      entries = await listServerFiles(panelId, server.identifier, currentDir);
     } catch (e) {
       error = String(e);
       entries = [];
@@ -56,7 +60,7 @@
     armedDelete = null;
     void (async () => {
       try {
-        await deleteServerFiles(server.identifier, currentDir, [entry.name]);
+        await deleteServerFiles(panelId, server.identifier, currentDir, [entry.name]);
         await load();
       } catch (e) {
         error = String(e);
@@ -69,7 +73,7 @@
     const name = newFolderName.trim();
     if (!name) return;
     try {
-      await createServerFolder(server.identifier, currentDir, name);
+      await createServerFolder(panelId, server.identifier, currentDir, name);
       newFolderName = "";
       await load();
     } catch (e) {

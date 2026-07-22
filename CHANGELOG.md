@@ -4,6 +4,21 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Reworking the app around a clearer split: **Panels** for live server operation,
+**Projects** for planning and deploying. In progress.
+
+### Changed
+
+- **Panels tab now shows every server across all the team's panels** at once,
+  each grouped under its panel, with power, live stats and console. The Rust
+  core supports several panels connected simultaneously (server commands are
+  scoped by panel). Deploy, git history and the file browser are moving off the
+  server tiles and into the matching project (Projects tab).
+- The Linux app icon now resolves correctly: the bundle identifier was aligned
+  with "Feather" so the desktop matches the window to its launcher/taskbar icon.
+
 ## [2.1.0] — 2026-07-22
 
 Cloud collaboration — Feather grows from a local-only app into a team

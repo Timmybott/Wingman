@@ -1,19 +1,14 @@
 <script lang="ts">
-  import type { PanelConfig } from "../types";
   import Logo from "./Logo.svelte";
 
   let {
-    panel,
     userEmail,
     teamName,
-    onDisconnect,
     onSwitchTeam,
     onLogout,
   }: {
-    panel: PanelConfig | null;
     userEmail: string;
     teamName: string;
-    onDisconnect: () => void;
     onSwitchTeam: () => void;
     onLogout: () => void;
   } = $props();
@@ -28,19 +23,6 @@
   </div>
 
   <div class="right">
-    <div class="connection">
-      {#if panel}
-        <span class="dot online"></span>
-        <span class="muted" title={panel.base_url}>{panel.name}</span>
-        <button class="ghost" onclick={onDisconnect}>Disconnect</button>
-      {:else}
-        <span class="dot unknown"></span>
-        <span class="muted">Not connected</span>
-      {/if}
-    </div>
-
-    <span class="sep"></span>
-
     <div class="account">
       <button class="team" onclick={() => (menuOpen = !menuOpen)} title={userEmail}>
         <span class="team-name">{teamName}</span>
@@ -98,18 +80,6 @@
     display: flex;
     align-items: center;
     gap: 12px;
-  }
-
-  .connection {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .sep {
-    width: 1px;
-    height: 20px;
-    background: var(--border);
   }
 
   .account {

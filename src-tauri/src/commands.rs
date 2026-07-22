@@ -24,23 +24,24 @@ pub struct SocketHandle {
     forwarder: tauri::async_runtime::JoinHandle<()>,
 }
 
-/// The Pterodactyl panel the session is currently talking to. Its credentials
-/// live encrypted in the cloud (Supabase) and are decrypted per team member;
-/// this device holds them in memory only while a panel is connected — the API
-/// key is never written to local disk.
+/// A Pterodactyl panel connected this session. Its credentials live encrypted
+/// in the cloud (Supabase) and are decrypted per team member; this device holds
+/// them in memory only while the panel is connected — never on local disk.
 #[derive(Clone)]
 pub struct ActivePanel {
     pub base_url: String,
     pub api_key: String,
 }
 
-fn client_for(state: &AppState) -> CmdResult<PanelClient> {
+/// Build a client for a specific connected panel (by cloud panel id).
+fn client_for(state: &AppState, panel_id: &str) -> CmdResult<PanelClient> {
     let panel = state
-        .active_panel
+        .panels
         .lock()
-        .expect("active_panel mutex poisoned")
-        .clone()
-        .ok_or_else(|| "no panel connected".to_string())?;
+        .expect("panels mutex poisoned")
+        .get(panel_id)
+        .cloned()
+        .ok_or_else(|| "panel not connected".to_string())?;
     PanelClient::new(&panel.base_url, &panel.api_key).map_err(|e| e.to_string())
 }
 
@@ -53,42 +54,45 @@ pub async fn test_connection(base_url: String, api_key: String) -> CmdResult<usi
 }
 
 /// Connect a team panel for this session by loading its decrypted credentials
-/// into memory. The frontend fetches the key from the cloud (panel_api_key
-/// RPC, team-members only) and hands it here; it is never persisted locally.
-/// Switching panels first tears down any sockets bound to the previous one.
+/// into memory, keyed by its cloud panel id. The frontend fetches the key from
+/// the cloud (panel_api_key RPC, team-members only) and hands it here; it is
+/// never persisted locally. Several panels can be connected at once.
 #[tauri::command]
 pub async fn set_active_panel(
     state: State<'_, AppState>,
+    panel_id: String,
     base_url: String,
     api_key: String,
 ) -> CmdResult<()> {
-    close_all_sockets(&state).await;
+    // Reconnecting the same panel replaces its creds; drop its old sockets.
+    close_panel_sockets(&state, &panel_id).await;
     let url = normalize_base_url(&base_url).map_err(|e| e.to_string())?;
-    *state
-        .active_panel
-        .lock()
-        .expect("active_panel mutex poisoned") = Some(ActivePanel {
-        base_url: url.to_string(),
-        api_key: api_key.trim().to_string(),
-    });
+    state.panels.lock().expect("panels mutex poisoned").insert(
+        panel_id,
+        ActivePanel {
+            base_url: url.to_string(),
+            api_key: api_key.trim().to_string(),
+        },
+    );
     Ok(())
 }
 
-/// Disconnect the active panel and close all its live sockets. The in-memory
-/// credentials are dropped; the cloud copy is untouched.
+/// Disconnect one panel and close its live sockets. The in-memory credentials
+/// are dropped; the cloud copy is untouched.
 #[tauri::command]
-pub async fn clear_active_panel(state: State<'_, AppState>) -> CmdResult<()> {
-    close_all_sockets(&state).await;
-    *state
-        .active_panel
+pub async fn clear_active_panel(state: State<'_, AppState>, panel_id: String) -> CmdResult<()> {
+    close_panel_sockets(&state, &panel_id).await;
+    state
+        .panels
         .lock()
-        .expect("active_panel mutex poisoned") = None;
+        .expect("panels mutex poisoned")
+        .remove(&panel_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> {
-    let client = client_for(&state)?;
+pub async fn list_servers(state: State<'_, AppState>, panel_id: String) -> CmdResult<Vec<Server>> {
+    let client = client_for(&state, &panel_id)?;
     client.list_servers().await.map_err(|e| e.to_string())
 }
 
@@ -97,9 +101,10 @@ pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> 
 #[tauri::command]
 pub async fn server_resources(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
 ) -> CmdResult<ServerStats> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .server_resources(&identifier)
         .await
@@ -109,11 +114,12 @@ pub async fn server_resources(
 #[tauri::command]
 pub async fn set_power(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     signal: String,
 ) -> CmdResult<()> {
     let signal: PowerSignal = signal.parse()?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .set_power(&identifier, signal)
         .await
@@ -121,41 +127,41 @@ pub async fn set_power(
 }
 
 /// Open the server's websocket and forward its events to the frontend as
-/// Tauri events named `server-event-{identifier}`. Idempotent.
+/// Tauri events named `server-event-{panel_id}-{identifier}`. Idempotent.
 #[tauri::command]
 pub async fn subscribe_server(
     app: AppHandle,
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
 ) -> CmdResult<()> {
+    let key = (panel_id.clone(), identifier.clone());
     let mut sockets = state.sockets.lock().await;
-    if sockets.contains_key(&identifier) {
+    if sockets.contains_key(&key) {
         return Ok(());
     }
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     let ServerSocket {
         mut events,
         outgoing,
     } = ServerSocket::spawn(client, identifier.clone());
-    let event_name = format!("server-event-{identifier}");
+    let event_name = format!("server-event-{panel_id}-{identifier}");
     let forwarder = tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
             let _ = app.emit(&event_name, &event);
         }
     });
-    sockets.insert(
-        identifier,
-        SocketHandle {
-            outgoing,
-            forwarder,
-        },
-    );
+    sockets.insert(key, SocketHandle { outgoing, forwarder });
     Ok(())
 }
 
 #[tauri::command]
-pub async fn unsubscribe_server(state: State<'_, AppState>, identifier: String) -> CmdResult<()> {
-    if let Some(handle) = state.sockets.lock().await.remove(&identifier) {
+pub async fn unsubscribe_server(
+    state: State<'_, AppState>,
+    panel_id: String,
+    identifier: String,
+) -> CmdResult<()> {
+    if let Some(handle) = state.sockets.lock().await.remove(&(panel_id, identifier)) {
         close_socket(handle);
     }
     Ok(())
@@ -164,12 +170,13 @@ pub async fn unsubscribe_server(state: State<'_, AppState>, identifier: String) 
 #[tauri::command]
 pub async fn send_console_command(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     command: String,
 ) -> CmdResult<()> {
     let sockets = state.sockets.lock().await;
     let handle = sockets
-        .get(&identifier)
+        .get(&(panel_id, identifier))
         .ok_or_else(|| "console is not connected".to_string())?;
     handle
         .outgoing
@@ -271,7 +278,7 @@ pub async fn deploy_project(
     project_id: String,
 ) -> CmdResult<()> {
     let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_deploy(client, state.store.clone(), project.clone());
     forward_engine_events(app, project, project_id, handle, "Deploy");
@@ -288,7 +295,7 @@ pub async fn rollback_project(
     commit_id: String,
 ) -> CmdResult<()> {
     let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_rollback(client, state.store.clone(), project.clone(), commit_id);
     forward_engine_events(app, project, project_id, handle, "Rollback");
@@ -312,7 +319,7 @@ pub async fn pull_project(
         other => return Err(format!("unknown pull mode `{other}`")),
     };
     let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_pull(client, state.store.clone(), project.clone(), mode);
     forward_engine_events(app, project, project_id, handle, "Sync");
@@ -335,7 +342,7 @@ pub async fn check_remote_deploy(
     project_id: String,
 ) -> CmdResult<RemoteDeployInfo> {
     let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
     let Some(remote) = read_remote_state(&client, &project)
         .await
         .map_err(|e| e.to_string())?
@@ -418,10 +425,11 @@ fn forward_engine_events(
 #[tauri::command]
 pub async fn list_server_files(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     directory: String,
 ) -> CmdResult<Vec<FileEntry>> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .list_files(&identifier, &directory)
         .await
@@ -431,11 +439,12 @@ pub async fn list_server_files(
 #[tauri::command]
 pub async fn delete_server_files(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     root: String,
     files: Vec<String>,
 ) -> CmdResult<()> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .delete_files(&identifier, &root, &files)
         .await
@@ -445,11 +454,12 @@ pub async fn delete_server_files(
 #[tauri::command]
 pub async fn create_server_folder(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     root: String,
     name: String,
 ) -> CmdResult<()> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .create_folder(&identifier, &root, &name)
         .await
@@ -557,10 +567,19 @@ pub async fn deploy_status(
     })
 }
 
-async fn close_all_sockets(state: &AppState) {
+/// Close every live socket belonging to one panel (used when it reconnects or
+/// disconnects). Sockets are keyed by (panel id, server identifier).
+async fn close_panel_sockets(state: &AppState, panel_id: &str) {
     let mut sockets = state.sockets.lock().await;
-    for (_, handle) in sockets.drain() {
-        close_socket(handle);
+    let keys: Vec<(String, String)> = sockets
+        .keys()
+        .filter(|(pid, _)| pid == panel_id)
+        .cloned()
+        .collect();
+    for key in keys {
+        if let Some(handle) = sockets.remove(&key) {
+            close_socket(handle);
+        }
     }
 }
 
