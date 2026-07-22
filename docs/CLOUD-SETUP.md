@@ -61,10 +61,15 @@ Then run [`supabase/0004_team_members.sql`](../supabase/0004_team_members.sql)
 in a **new query**. It adds the functions for inviting and removing team
 members by email. Also idempotent.
 
-Last, run [`supabase/0005_deploys.sql`](../supabase/0005_deploys.sql) in a
+Then run [`supabase/0005_deploys.sql`](../supabase/0005_deploys.sql) in a
 **new query**. It adds the deploy-history table and the `record_deploy`
 function, so each project's Deploys tab can show who deployed what and when.
 Also idempotent.
+
+Last, run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
+**new query**. It adds the issues and comments tables (and the `create_issue`
+/ `add_issue_comment` functions) that power each project's Issues tab. Also
+idempotent.
 
 ## 4. Turn on email login
 

@@ -344,3 +344,106 @@ export async function findOrCreateProjectForServer(
     server_identifier: serverIdentifier,
   });
 }
+
+// --- Issues ----------------------------------------------------------------
+
+export type IssueStatus = "open" | "closed";
+
+export interface Issue {
+  id: string;
+  number: number;
+  title: string;
+  body: string;
+  status: IssueStatus;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  created_by: string | null;
+  author_name: string | null;
+  comment_count: number;
+}
+
+export interface IssueComment {
+  id: string;
+  body: string;
+  created_at: string;
+  created_by: string | null;
+  author_name: string | null;
+}
+
+function profileName(raw: unknown): string | null {
+  const profile = (Array.isArray(raw) ? raw[0] : raw) as
+    | { display_name: string | null; username: string | null }
+    | null
+    | undefined;
+  return profile?.display_name?.trim() || profile?.username || null;
+}
+
+export async function listIssues(projectId: string): Promise<Issue[]> {
+  const { data, error } = await supabase
+    .from("issues")
+    .select(
+      "id, number, title, body, status, created_at, updated_at, closed_at, created_by, profiles(display_name, username), issue_comments(count)",
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => {
+    const counts = (row as { issue_comments?: { count: number }[] }).issue_comments;
+    return {
+      id: row.id,
+      number: row.number,
+      title: row.title,
+      body: row.body,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      closed_at: row.closed_at,
+      created_by: row.created_by,
+      author_name: profileName((row as { profiles?: unknown }).profiles),
+      comment_count: counts?.[0]?.count ?? 0,
+    };
+  });
+}
+
+export async function createIssue(
+  projectId: string,
+  title: string,
+  body: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("create_issue", {
+    p_project: projectId,
+    p_title: title,
+    p_body: body,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setIssueStatus(id: string, status: IssueStatus): Promise<void> {
+  const { error } = await supabase.from("issues").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function listComments(issueId: string): Promise<IssueComment[]> {
+  const { data, error } = await supabase
+    .from("issue_comments")
+    .select("id, body, created_at, created_by, profiles(display_name, username)")
+    .eq("issue_id", issueId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    body: row.body,
+    created_at: row.created_at,
+    created_by: row.created_by,
+    author_name: profileName((row as { profiles?: unknown }).profiles),
+  }));
+}
+
+export async function addComment(issueId: string, body: string): Promise<void> {
+  const { error } = await supabase.rpc("add_issue_comment", {
+    p_issue: issueId,
+    p_body: body,
+  });
+  if (error) throw new Error(error.message);
+}

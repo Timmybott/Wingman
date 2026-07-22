@@ -43,6 +43,10 @@ runs locally on each machine; the cloud holds the shared data.
   Deploys and rollbacks from the server dashboard are recorded automatically
   against the matching project (created on first deploy if needed), so the
   whole team sees a shared timeline.
+- **Issues** — a GitHub-style issue tracker on each project. Open issues
+  (numbered per project), write a description, discuss in comments, and close
+  or reopen them. Open/closed filters and comment counts included; everything
+  is shared across the team.
 
 ### Changed
 

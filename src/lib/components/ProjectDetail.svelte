@@ -9,6 +9,7 @@
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
+  import IssuesPanel from "./IssuesPanel.svelte";
 
   let {
     project,
@@ -26,7 +27,7 @@
     onDeleted: (id: string) => void;
   } = $props();
 
-  type Tab = "overview" | "deploys" | "settings";
+  type Tab = "overview" | "issues" | "deploys" | "settings";
   let tab = $state<Tab>("overview");
 
   let error = $state<string | null>(null);
@@ -188,9 +189,10 @@
 
   <nav class="subtabs">
     <button class:active={tab === "overview"} onclick={() => (tab = "overview")}>Overview</button>
+    <button class:active={tab === "issues"} onclick={() => (tab = "issues")}>Issues</button>
     <button class:active={tab === "deploys"} onclick={openDeploys}>Deploys</button>
     <button class:active={tab === "settings"} onclick={openSettings}>Settings</button>
-    <span class="soon" title="Coming in the next milestones">Issues · Planning soon</span>
+    <span class="soon" title="Coming in the next milestone">Planning soon</span>
   </nav>
 
   {#if error}<p class="error">{error}</p>{/if}
@@ -244,6 +246,8 @@
         </div>
       </aside>
     </div>
+  {:else if tab === "issues"}
+    <IssuesPanel projectId={project.id} />
   {:else if tab === "deploys"}
     <div class="deploys">
       {#if deploysLoading}
