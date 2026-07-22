@@ -277,3 +277,22 @@ export function writeServerFile(
 export function readLocalFile(project: ProjectConfig, path: string): Promise<string> {
   return invoke<string>("read_local_file", { project, path });
 }
+
+/** One file's text from a commit's stored snapshot ("" if not present). */
+export function snapshotFile(
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  commitId: string,
+  path: string,
+): Promise<string> {
+  return invoke<string>("snapshot_file", {
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    commitId,
+    path,
+  });
+}

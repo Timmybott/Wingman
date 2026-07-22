@@ -8,6 +8,11 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Clickable per-file line diffs.** In the Deploy tab's "Changes since last
+  deploy" and in History (a commit's detail), click any changed file to see a
+  GitHub-style line-level diff — added, removed and changed lines. Deploy-tab
+  diffs compare the server's version to your local file; commit diffs compare
+  the commit's snapshot to its parent's.
 - **Project logos.** A project can carry a logo image (URL), shown on its page
   and in the project list. Set it under Settings. Requires migration `0012`.
 
@@ -20,6 +25,11 @@ All notable changes to Feather are documented here. The format follows
 
 ### Fixed
 
+- **Diff no longer shows every file as changed after linking a folder.** The
+  Deploy tab diffed against the last *released* bundle, so a freshly imported
+  project (no cloud deploy yet) treated every file as new. The server-state
+  baseline now lives on the project and is set both when the server's files
+  are imported and when a deploy is released (migration `0013`).
 - **Overview stats & recent activity now stay current.** The stat tiles (open
   issues, deploys, last deploy, current commit) and the Recent-activity list
   loaded only once and went stale — showing 0 / "No deploys yet" after a

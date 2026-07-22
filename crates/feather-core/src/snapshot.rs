@@ -225,6 +225,36 @@ pub async fn download_snapshot(
     Ok(res.bytes().await?.to_vec())
 }
 
+/// Download a commit/rollback snapshot and return one file's UTF-8 text, or an
+/// empty string if that path isn't in the snapshot (e.g. it was added later).
+#[allow(clippy::too_many_arguments)]
+pub async fn snapshot_file(
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+    path: &str,
+) -> Result<String, Error> {
+    let bytes = download_snapshot(endpoint, token, anon_key, project_id, commit_id, kind).await?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| Error::Deploy(format!("open snapshot: {e}")))?;
+    let mut buf = Vec::new();
+    let found = match archive.by_name(path) {
+        Ok(mut entry) => {
+            std::io::copy(&mut entry, &mut buf)?;
+            true
+        }
+        Err(_) => false,
+    };
+    if found {
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    } else {
+        Ok(String::new())
+    }
+}
+
 /// Extract a snapshot zip into `dest`. Entry paths are sanitized (a malicious
 /// archive can never write outside `dest`).
 pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), Error> {

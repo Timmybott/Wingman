@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { snapshotFile } from "../api";
   import {
+    anonKey,
     getBundleManifest,
     getCommitManifest,
     listBundles,
     listCommits,
     listIssues,
+    sessionToken,
+    STORAGE_ENDPOINT,
     type CloudCommit,
     type CloudProject,
     type DeployBundle,
@@ -12,6 +16,7 @@
   } from "../cloud";
   import { diffCounts, diffManifests } from "../diff";
   import type { Diff } from "../types";
+  import FileDiff from "./FileDiff.svelte";
 
   let {
     project,
@@ -35,11 +40,46 @@
 
   // Detail state.
   let selected = $state<CloudCommit | DeployBundle | null>(null);
+  let selectedParentId = $state<string | null>(null);
   let detailCommits = $state<CloudCommit[]>([]); // commits in the selected deploy
   let diff = $state<Diff | null>(null);
   let detailLoading = $state(false);
   let armed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Per-file diff viewer (commit snapshots).
+  let openFileDiff = $state<{
+    path: string;
+    oldText: string;
+    newText: string;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
+
+  async function showCommitFileDiff(path: string) {
+    if (view !== "commit" || !asCommit) return;
+    const commitId = asCommit.id;
+    const parentId = selectedParentId;
+    openFileDiff = { path, oldText: "", newText: "", loading: true, error: null };
+    try {
+      const token = await sessionToken();
+      const [newText, oldText] = await Promise.all([
+        snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, commitId, path),
+        parentId
+          ? snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, parentId, path)
+          : Promise.resolve(""),
+      ]);
+      openFileDiff = { path, oldText, newText, loading: false, error: null };
+    } catch (e) {
+      openFileDiff = {
+        path,
+        oldText: "",
+        newText: "",
+        loading: false,
+        error: String(e instanceof Error ? e.message : e),
+      };
+    }
+  }
 
   const released = $derived(bundles.filter((b) => b.status === "released"));
 
@@ -74,6 +114,7 @@
       // Diff this commit against the previous commit in the project timeline.
       const idx = commits.findIndex((c) => c.id === commit.id);
       const parent = idx >= 0 ? commits[idx + 1] : undefined;
+      selectedParentId = parent?.id ?? null;
       const [self, base] = await Promise.all([
         getCommitManifest(commit.id),
         parent ? getCommitManifest(parent.id) : Promise.resolve({}),
@@ -226,7 +267,7 @@
         <h5>Fixes</h5>
         {@render issueList(commitIssues)}
       {/if}
-      {@render diffBlock()}
+      {@render diffBlock(true)}
     </div>
   {:else if view === "deploy" && asBundle}
     <div class="detail">
@@ -256,7 +297,7 @@
       {/if}
 
       <h5>Changes on the server</h5>
-      {@render diffBlock()}
+      {@render diffBlock(false)}
     </div>
   {/if}
 </div>
@@ -273,7 +314,7 @@
   </ul>
 {/snippet}
 
-{#snippet diffBlock()}
+{#snippet diffBlock(clickable: boolean)}
   {#if detailLoading}
     <p class="muted small">Computing diff…</p>
   {:else if diff}
@@ -288,12 +329,31 @@
       </p>
       <ul class="files">
         {#each diff.changes as ch (ch.path)}
-          <li class={ch.change}><span class="fsym">{sym[ch.change]}</span> {ch.path}</li>
+          <li>
+            {#if clickable}
+              <button class="file {ch.change}" onclick={() => showCommitFileDiff(ch.path)} title="View changes">
+                <span class="fsym">{sym[ch.change]}</span> {ch.path}
+              </button>
+            {:else}
+              <span class="file {ch.change}"><span class="fsym">{sym[ch.change]}</span> {ch.path}</span>
+            {/if}
+          </li>
         {/each}
       </ul>
     {/if}
   {/if}
 {/snippet}
+
+{#if openFileDiff}
+  <FileDiff
+    path={openFileDiff.path}
+    oldText={openFileDiff.oldText}
+    newText={openFileDiff.newText}
+    loading={openFileDiff.loading}
+    error={openFileDiff.error}
+    onClose={() => (openFileDiff = null)}
+  />
+{/if}
 
 <style>
   .backdrop {
@@ -499,15 +559,35 @@
     font-weight: 700;
   }
 
-  .files li.added {
+  .file {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 1px 4px;
+    font: inherit;
+    color: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button.file:hover {
+    background: var(--surface-2);
+    text-decoration: underline;
+  }
+
+  .file.added {
     color: var(--ok, #34d399);
   }
 
-  .files li.modified {
+  .file.modified {
     color: var(--warn, #fbbf24);
   }
 
-  .files li.deleted {
+  .file.deleted {
     color: var(--danger, #f87171);
   }
 

@@ -673,6 +673,30 @@ pub async fn upload_commit_snapshot(
     Ok(SnapshotUpload { files, manifest })
 }
 
+/// One file's text from a commit's stored snapshot (empty if not present).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn snapshot_file(
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+    path: String,
+) -> CmdResult<String> {
+    snapshot::snapshot_file(
+        &endpoint,
+        &token,
+        &anon_key,
+        &project_id,
+        &commit_id,
+        "commit",
+        &path,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn project_history(
     project: ProjectConfig,

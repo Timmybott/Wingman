@@ -63,6 +63,7 @@ pub fn run() {
             commands::project_manifest,
             commands::project_diff,
             commands::upload_commit_snapshot,
+            commands::snapshot_file,
             commands::project_history,
             commands::deploy_status,
             commands::list_server_files,
