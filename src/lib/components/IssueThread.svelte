@@ -8,6 +8,7 @@
     type IssueComment,
     type IssueStatus,
   } from "../cloud";
+  import Markdown from "./Markdown.svelte";
 
   let {
     issue,
@@ -105,7 +106,7 @@
       <span class="muted">opened this · {when(issue.created_at)}</span>
     </div>
     {#if issue.body.trim() !== ""}
-      <p class="body">{issue.body}</p>
+      <Markdown source={issue.body} />
     {:else}
       <p class="muted">No description.</p>
     {/if}
@@ -120,7 +121,7 @@
           <span class="author">{c.author_name ?? "someone"}</span>
           <span class="muted">{when(c.created_at)}</span>
         </div>
-        <p class="body">{c.body}</p>
+        <Markdown source={c.body} />
       </article>
     {/each}
   {/if}
@@ -211,11 +212,6 @@
 
   .author {
     font-weight: 600;
-  }
-
-  .body {
-    line-height: 1.6;
-    white-space: pre-wrap;
   }
 
   form {

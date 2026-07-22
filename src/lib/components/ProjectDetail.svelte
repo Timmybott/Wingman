@@ -9,7 +9,9 @@
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
+  import { toggleTaskInMarkdown } from "../markdown";
   import IssuesPanel from "./IssuesPanel.svelte";
+  import Markdown from "./Markdown.svelte";
 
   let {
     project,
@@ -115,6 +117,18 @@
     }
   }
 
+  /** Tick a checklist item straight from the rendered description and persist. */
+  async function toggleTask(index: number, checked: boolean) {
+    const next = toggleTaskInMarkdown(project.description, index, checked);
+    error = null;
+    try {
+      const updated = await updateProject(project.id, { description: next });
+      onChanged(updated);
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    }
+  }
+
   async function saveSettings(event: SubmitEvent) {
     event.preventDefault();
     if (name.trim() === "") return;
@@ -208,7 +222,8 @@
             {/if}
           </div>
           {#if editingDescription}
-            <textarea bind:value={descriptionDraft} rows="10" placeholder="Describe this project — goals, plans, notes, links…"></textarea>
+            <textarea bind:value={descriptionDraft} rows="10" placeholder="Describe this project — goals, plans, notes, links…&#10;&#10;Markdown supported: # headings, **bold**, - lists, `code`, and&#10;- [ ] checklists you can tick right on the overview"></textarea>
+            <p class="hint muted">Markdown supported — headings, lists, code, links, and <code>- [ ]</code> checklists.</p>
             <div class="row-actions">
               <button class="ghost" onclick={() => (editingDescription = false)} disabled={savingDescription}>Cancel</button>
               <button class="primary" onclick={saveDescription} disabled={savingDescription}>
@@ -216,7 +231,7 @@
               </button>
             </div>
           {:else if project.description.trim() !== ""}
-            <p class="description">{project.description}</p>
+            <Markdown source={project.description} onToggleTask={toggleTask} />
           {:else}
             <p class="muted">No description yet. Add goals, plans and notes so your team is on the same page.</p>
           {/if}
@@ -442,6 +457,18 @@
   .description {
     line-height: 1.65;
     white-space: pre-wrap;
+  }
+
+  .hint {
+    font-size: 12px;
+    margin: 8px 0 0;
+  }
+
+  .hint code {
+    background: var(--surface-2);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 11px;
   }
 
   .side {

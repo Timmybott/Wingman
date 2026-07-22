@@ -47,6 +47,12 @@ runs locally on each machine; the cloud holds the shared data.
   (numbered per project), write a description, discuss in comments, and close
   or reopen them. Open/closed filters and comment counts included; everything
   is shared across the team.
+- **Markdown planning** — project descriptions, issues and comments render
+  Markdown: headings, bold/italic, lists, code, blockquotes, links and
+  GitHub-style task lists. Checklists in a project's description are
+  interactive — tick `- [ ]` items right on the Overview and the change is
+  saved for the team. The renderer is dependency-free and escapes all input,
+  so no untrusted HTML or `javascript:` links can run in the app.
 
 ### Changed
 
