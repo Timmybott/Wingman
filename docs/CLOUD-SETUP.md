@@ -77,11 +77,26 @@ in a **new query**. It adds the tombstone table and `request_project_deletion`
 function used by "delete everywhere", so a deleted project is also removed from
 every teammate's machine. Also idempotent.
 
-Last, run [`supabase/0008_profiles.sql`](../supabase/0008_profiles.sql) in a
+Then run [`supabase/0008_profiles.sql`](../supabase/0008_profiles.sql) in a
 **new query**. It adds the profile fields (location, website, logo/avatar and a
 Markdown README) to user accounts and teams, restricts team editing to the
 owner, and adds `set_member_role` so the owner can grant or revoke admin
 rights. Also idempotent.
+
+Last, run [`supabase/0009_commits.sql`](../supabase/0009_commits.sql) in a
+**new query**. It adds the cloud-commit and deploy-bundle tables (metadata
+only — the file snapshots live on the storage backend) and their RPCs, which
+power the reworked Deploy/commit/history flow. Also idempotent.
+
+## 3b. Deploy the storage function (cloud commits)
+
+Feather stores commit snapshots and rollbacks as files on a dedicated
+Pterodactyl server, reached only through the **`feather-storage`** Edge
+Function so its API key never ships in the app. Follow
+[`supabase/functions/feather-storage/README.md`](../supabase/functions/feather-storage/README.md):
+set the `FEATHER_STORAGE_KEY` secret and run `supabase functions deploy
+feather-storage`. Until it's deployed, Feather treats cloud storage as
+unavailable — so this step is safe to do whenever you're ready.
 
 ## 4. Turn on email login
 

@@ -6,6 +6,19 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Cloud-commit backend scaffolding (M22, foundation).** Groundwork for the
+  reworked Deploy/commit/history flow where each member commits locally and
+  everyone's commits bundle into the project's current Deploy: a new
+  `supabase/0009_commits.sql` migration (metadata-only `commits` and
+  `deploy_bundles` tables with `current_bundle` / `create_commit` /
+  `mark_commit_stored` / `release_bundle` RPCs), and the **`feather-storage`
+  Edge Function** — the single server-side holder of the storage server's API
+  key, which authenticates each caller, checks team membership, derives the
+  storage path itself and self-creates the folder tree. The commit/deploy UI
+  wiring lands in following steps; deploying the function early is harmless.
+
 ### Security
 
 - **Reserved storage backend is fully excluded.** Feather is gaining a
