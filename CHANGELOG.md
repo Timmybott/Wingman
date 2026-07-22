@@ -8,6 +8,15 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **History with Deploys & Commits, diffs, and storage rollback (M22).** The
+  project's **History** now has two categories — **Deploys** (every released
+  bundle) and **Commits** (every commit) — each opening a detail view. A
+  commit's page shows its full file diff against the previous commit; a
+  deploy's page lists the commits it shipped and its diff against the previous
+  deploy. From a commit you can **Rollback**: Feather downloads that commit's
+  snapshot from the storage backend and redeploys it (the local folder is
+  never touched), so any teammate can roll the server back to any commit even
+  without those files locally.
 - **Cloud commits in the Deploy tab (M22).** The Deploy tab now opens with a
   **"Changes since last deploy"** panel: a live diff of your local folder
   against the current server state (added/modified/deleted, with an

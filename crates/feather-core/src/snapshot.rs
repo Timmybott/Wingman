@@ -192,6 +192,66 @@ pub async fn upload_snapshot(
     Ok((files, manifest))
 }
 
+/// Download a commit/rollback snapshot (a zip) from the storage backend through
+/// the `feather-storage` Edge Function. See [`upload_snapshot`] for the auth
+/// model — the function derives the path from the ids.
+#[allow(clippy::too_many_arguments)]
+pub async fn download_snapshot(
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<Vec<u8>, Error> {
+    let mut url = url::Url::parse(endpoint).map_err(|e| Error::Deploy(e.to_string()))?;
+    url.query_pairs_mut()
+        .append_pair("action", "get")
+        .append_pair("project_id", project_id)
+        .append_pair("commit_id", commit_id)
+        .append_pair("kind", kind);
+    let res = reqwest::Client::new()
+        .get(url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("apikey", anon_key)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        return Err(Error::Deploy(format!(
+            "snapshot download failed: HTTP {}",
+            res.status().as_u16()
+        )));
+    }
+    Ok(res.bytes().await?.to_vec())
+}
+
+/// Extract a snapshot zip into `dest`. Entry paths are sanitized (a malicious
+/// archive can never write outside `dest`).
+pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), Error> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| Error::Deploy(format!("open snapshot: {e}")))?;
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| Error::Deploy(format!("read snapshot entry: {e}")))?;
+        // enclosed_name() rejects absolute paths and `..` traversal.
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
+        let out = dest.join(rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out)?;
+        } else {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut file = std::fs::File::create(&out)?;
+            std::io::copy(&mut entry, &mut file)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +314,30 @@ mod tests {
         write(dir.path(), "a.txt", "x");
         let m = manifest_of(dir.path()).unwrap();
         assert!(diff_manifests(&m, &m).is_empty());
+    }
+
+    #[test]
+    fn snapshot_zip_then_extract_roundtrips() {
+        let src = tempfile::tempdir().unwrap();
+        write(src.path(), "a.txt", "hello");
+        write(src.path(), "sub/b.txt", "world");
+        let (bytes, _) = snapshot_zip(src.path()).unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        extract_zip(&bytes, dest.path()).unwrap();
+        assert_eq!(
+            fs::read_to_string(dest.path().join("a.txt")).unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            fs::read_to_string(dest.path().join("sub/b.txt")).unwrap(),
+            "world"
+        );
+        // Re-scanning the extracted tree yields the same manifest.
+        assert_eq!(
+            manifest_of(src.path()).unwrap(),
+            manifest_of(dest.path()).unwrap()
+        );
     }
 
     #[test]

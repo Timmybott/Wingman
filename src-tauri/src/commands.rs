@@ -2,7 +2,7 @@
 //! strings, so every command maps core errors with `to_string()`.
 
 use crate::AppState;
-use feather_core::deploy::{start_deploy, start_rollback, DeployStep};
+use feather_core::deploy::{start_deploy, start_rollback, start_snapshot_rollback, DeployStep};
 use feather_core::git;
 use feather_core::models::{FileEntry, PowerSignal, Server, ServerStats};
 use feather_core::snapshot;
@@ -323,6 +323,38 @@ pub async fn rollback_project(
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_rollback(client, state.store.clone(), project.clone(), commit_id);
     forward_engine_events(app, project, project_id, handle, "Rollback");
+    Ok(())
+}
+
+/// Roll the server back to a cloud commit: download that commit's snapshot
+/// from the storage backend and deploy it. Shares the running-guard and event
+/// channel with deploy_project; the local folder is not touched.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn rollback_to_snapshot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+) -> CmdResult<()> {
+    let client = client_for(&state, &project.panel_id)?;
+    let engine_id = project.id.clone();
+    claim_engine_slot(&state, &engine_id).await?;
+    let handle = start_snapshot_rollback(
+        client,
+        state.store.clone(),
+        project.clone(),
+        endpoint,
+        token,
+        anon_key,
+        project_id,
+        commit_id,
+    );
+    forward_engine_events(app, project, engine_id, handle, "Rollback");
     Ok(())
 }
 

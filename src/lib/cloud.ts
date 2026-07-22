@@ -685,6 +685,28 @@ export async function serverManifest(projectId: string): Promise<Manifest> {
   return (data ?? {}) as Manifest;
 }
 
+/** A commit's stored content manifest ({} if it wasn't recorded). */
+export async function getCommitManifest(commitId: string): Promise<Manifest> {
+  const { data, error } = await supabase
+    .from("commits")
+    .select("manifest")
+    .eq("id", commitId)
+    .single();
+  if (error) throw new Error(error.message);
+  return ((data?.manifest as Manifest | null) ?? {}) as Manifest;
+}
+
+/** A released bundle's deployed manifest ({} if it wasn't recorded). */
+export async function getBundleManifest(bundleId: string): Promise<Manifest> {
+  const { data, error } = await supabase
+    .from("deploy_bundles")
+    .select("deployed_manifest")
+    .eq("id", bundleId)
+    .single();
+  if (error) throw new Error(error.message);
+  return ((data?.deployed_manifest as Manifest | null) ?? {}) as Manifest;
+}
+
 /** All bundles of a project, newest first. */
 export async function listBundles(projectId: string): Promise<DeployBundle[]> {
   const { data, error } = await supabase

@@ -7,20 +7,23 @@
     projectHistory,
     projectManifest,
     pullProject,
-    rollbackProject,
+    rollbackToSnapshot,
   } from "../api";
   import {
+    anonKey,
     currentBundle,
     listDeploys,
     recordDeploy,
     releaseBundle,
+    sessionToken,
+    STORAGE_ENDPOINT,
     type CloudProject,
     type DeployEntry,
     type DeployKind,
   } from "../cloud";
   import type { DeployStep, ProjectConfig } from "../types";
   import CloudCommits from "./CloudCommits.svelte";
-  import HistoryView from "./HistoryView.svelte";
+  import ProjectHistory from "./ProjectHistory.svelte";
 
   let { project, localPath }: { project: CloudProject; localPath: string | null } = $props();
 
@@ -185,19 +188,22 @@
     }
   }
 
-  function onRollback(commitId: string) {
+  async function onRollback(commitId: string) {
     if (!config) return;
     showHistory = false;
     error = null;
     backupWarning = null;
     currentKind = "rollback";
-    step = { step: "checking_out" };
-    rollbackProject(config, commitId).catch((e) => {
+    step = { step: "downloading", percent: 0 };
+    try {
+      const token = await sessionToken();
+      await rollbackToSnapshot(config, STORAGE_ENDPOINT, token, anonKey, project.id, commitId);
+    } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
       currentKind = null;
       void record("rollback", failed);
-    });
+    }
   }
 
   function when(iso: string): string {
@@ -231,7 +237,7 @@
           Import from server
         </button>
         <button class="ghost" onclick={() => (showHistory = true)} disabled={running}>
-          History & rollback
+          History
         </button>
       </div>
 
@@ -286,12 +292,7 @@
 </div>
 
 {#if showHistory && config}
-  <HistoryView
-    project={config}
-    {onRollback}
-    onChanged={() => (cloudRefresh += 1)}
-    onClose={() => (showHistory = false)}
-  />
+  <ProjectHistory {project} {onRollback} onClose={() => (showHistory = false)} />
 {/if}
 
 <style>

@@ -142,6 +142,29 @@ export function rollbackProject(project: ProjectConfig, commitId: string): Promi
 }
 
 /**
+ * Roll the server back to a cloud commit: the Rust side downloads that commit's
+ * snapshot from the storage backend and deploys it. Progress arrives on the
+ * deploy-event channel. The local folder is not touched.
+ */
+export function rollbackToSnapshot(
+  project: ProjectConfig,
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  commitId: string,
+): Promise<void> {
+  return invoke<void>("rollback_to_snapshot", {
+    project,
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    commitId,
+  });
+}
+
+/**
  * Pull server files into the local folder. "import" fills an empty folder
  * right after linking; "sync" updates a clean working tree when another
  * device deployed. Progress arrives on the deploy-event channel.

@@ -55,6 +55,7 @@ pub fn run() {
             commands::remove_local_project,
             commands::deploy_project,
             commands::rollback_project,
+            commands::rollback_to_snapshot,
             commands::pull_project,
             commands::check_remote_deploy,
             commands::repo_status,
