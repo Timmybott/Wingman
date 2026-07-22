@@ -2,6 +2,7 @@
   import { createServerFolder, deleteServerFiles, listServerFiles } from "../api";
   import { formatBytes } from "../format";
   import type { FileEntry } from "../types";
+  import FileEditor from "./FileEditor.svelte";
 
   let { panelId, identifier }: { panelId: string; identifier: string } = $props();
 
@@ -12,8 +13,14 @@
   let newFolderName = $state("");
   let armedDelete = $state<string | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
+  let editing = $state<{ path: string; size: number } | null>(null);
 
   const currentDir = $derived("/" + segments.join("/"));
+
+  function openFile(entry: FileEntry) {
+    const dir = currentDir === "/" ? "" : currentDir;
+    editing = { path: `${dir}/${entry.name}`, size: entry.size };
+  }
 
   async function load() {
     loading = true;
@@ -99,8 +106,8 @@
           <button
             class="entry"
             class:dir={!entry.is_file}
-            onclick={() => enter(entry)}
-            disabled={entry.is_file}
+            onclick={() => (entry.is_file ? openFile(entry) : enter(entry))}
+            title={entry.is_file ? "Open & edit" : "Open folder"}
           >
             <span class="icon">{entry.is_file ? "▤" : "▸"}</span>
             <span class="name">{entry.name}</span>
@@ -131,6 +138,17 @@
     <button type="submit" disabled={newFolderName.trim() === ""}>Create</button>
   </form>
 </div>
+
+{#if editing}
+  <FileEditor
+    {panelId}
+    {identifier}
+    path={editing.path}
+    size={editing.size}
+    onSaved={load}
+    onClose={() => (editing = null)}
+  />
+{/if}
 
 <style>
   .browser {
@@ -201,17 +219,8 @@
     min-width: 0;
   }
 
-  .entry.dir {
-    cursor: pointer;
-  }
-
-  .entry.dir:hover {
+  .entry:hover {
     background: var(--surface-2);
-  }
-
-  .entry:disabled {
-    opacity: 1;
-    cursor: default;
   }
 
   .icon {

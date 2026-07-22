@@ -8,6 +8,10 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Edit server files in place.** In a project's **Files** tab, click a file to
+  open it in an editor and save changes straight back to the server — work
+  directly on the server without a local copy. Text files up to ~1 MB;
+  non-text/oversized files open read-only.
 - **Clickable per-file line diffs.** In the Deploy tab's "Changes since last
   deploy" and in History (a commit's detail), click any changed file to see a
   GitHub-style line-level diff — added, removed and changed lines. Deploy-tab
