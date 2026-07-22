@@ -10,6 +10,7 @@ pub mod deploy;
 pub mod error;
 pub mod git;
 pub mod models;
+pub mod storage;
 pub mod sync;
 pub mod ws;
 

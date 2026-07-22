@@ -11,6 +11,9 @@ pub enum Error {
     #[error("invalid server identifier `{0}`")]
     InvalidServerIdentifier(String),
 
+    #[error("this server is reserved by Feather and cannot be used here")]
+    ReservedServer,
+
     #[error("authentication failed (HTTP {status}) — check the API key")]
     Unauthorized { status: u16 },
 

@@ -6,6 +6,17 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Reserved storage backend is fully excluded.** Feather is gaining a
+  behind-the-scenes Pterodactyl server that holds commit snapshots and
+  rollbacks (M22). That server is now hard-excluded from every ordinary code
+  path: it is filtered out of server listings and rejected from every
+  server-scoped operation (details, resources, power, console, files,
+  backups, deploy), so even a user who connects a panel at the same host with
+  a key that can see it can never list, import, browse or deploy to it. Its
+  API key lives only server-side (never in the app).
+
 ### Added
 
 - **Profile pages for users and teams.** Every account and every team now has
