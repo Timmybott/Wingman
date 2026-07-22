@@ -68,6 +68,9 @@ pub fn run() {
             commands::list_server_files,
             commands::delete_server_files,
             commands::create_server_folder,
+            commands::read_server_file,
+            commands::write_server_file,
+            commands::read_local_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

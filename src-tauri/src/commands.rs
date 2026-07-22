@@ -531,6 +531,62 @@ pub async fn create_server_folder(
         .map_err(|e| e.to_string())
 }
 
+/// Read a server file as UTF-8 text. Errors if the file isn't valid UTF-8 (so
+/// the UI can treat it as a non-editable binary).
+#[tauri::command]
+pub async fn read_server_file(
+    state: State<'_, AppState>,
+    panel_id: String,
+    identifier: String,
+    path: String,
+) -> CmdResult<String> {
+    let client = client_for(&state, &panel_id)?;
+    let bytes = client
+        .read_file(&identifier, &path)
+        .await
+        .map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "this file is not UTF-8 text".to_string())
+}
+
+/// Overwrite a server file with new text content.
+#[tauri::command]
+pub async fn write_server_file(
+    state: State<'_, AppState>,
+    panel_id: String,
+    identifier: String,
+    path: String,
+    content: String,
+) -> CmdResult<()> {
+    let client = client_for(&state, &panel_id)?;
+    client
+        .write_file(&identifier, &path, content.into_bytes())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Read a file inside the project's local folder as UTF-8 text. The relative
+/// path is sanitized so it can never escape the project folder.
+#[tauri::command]
+pub async fn read_local_file(project: ProjectConfig, path: String) -> CmdResult<String> {
+    let mut full = project.local_path.clone();
+    for segment in path.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        if segment == ".." {
+            return Err("invalid path".into());
+        }
+        full.push(segment);
+    }
+    tokio::task::spawn_blocking(move || std::fs::read(&full))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|_| "this file is not UTF-8 text".to_string())
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Git: status, commits, history
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { projectDiff, uploadCommitSnapshot } from "../api";
+  import { projectDiff, readLocalFile, readServerFile, uploadCommitSnapshot } from "../api";
   import {
     anonKey,
     createCommit,
@@ -14,7 +14,8 @@
     type CloudProject,
     type DeployBundle,
   } from "../cloud";
-  import type { Diff, ProjectConfig } from "../types";
+  import type { ChangeKind, Diff, ProjectConfig } from "../types";
+  import FileDiff from "./FileDiff.svelte";
 
   let {
     project,
@@ -38,6 +39,37 @@
   let message = $state("");
   let committing = $state(false);
   let error = $state<string | null>(null);
+
+  // Per-file diff viewer state.
+  let openDiff = $state<{
+    path: string;
+    oldText: string;
+    newText: string;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
+
+  /** Open the line-level diff for one changed path (server version vs local). */
+  async function showFileDiff(path: string, change: ChangeKind) {
+    openDiff = { path, oldText: "", newText: "", loading: true, error: null };
+    try {
+      const [oldText, newText] = await Promise.all([
+        change === "added"
+          ? Promise.resolve("")
+          : readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path),
+        change === "deleted" ? Promise.resolve("") : readLocalFile(config, path),
+      ]);
+      openDiff = { path, oldText, newText, loading: false, error: null };
+    } catch (e) {
+      openDiff = {
+        path,
+        oldText: "",
+        newText: "",
+        loading: false,
+        error: String(e instanceof Error ? e.message : e),
+      };
+    }
+  }
 
   const counts = $derived.by(() => {
     let a = 0;
@@ -147,7 +179,11 @@
     {:else if showFiles}
       <ul class="files">
         {#each diff?.changes ?? [] as change (change.path)}
-          <li class={change.change}><span class="sym">{sym[change.change]}</span> {change.path}</li>
+          <li>
+            <button class="file {change.change}" onclick={() => showFileDiff(change.path, change.change)} title="View changes">
+              <span class="sym">{sym[change.change]}</span> {change.path}
+            </button>
+          </li>
         {/each}
       </ul>
     {/if}
@@ -192,6 +228,17 @@
     </div>
   {/if}
 </div>
+
+{#if openDiff}
+  <FileDiff
+    path={openDiff.path}
+    oldText={openDiff.oldText}
+    newText={openDiff.newText}
+    loading={openDiff.loading}
+    error={openDiff.error}
+    onClose={() => (openDiff = null)}
+  />
+{/if}
 
 <style>
   .card {
@@ -260,21 +307,41 @@
     gap: 2px;
   }
 
-  .files .sym {
+  .file {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 1px 4px;
+    font: inherit;
+    color: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file:hover {
+    background: var(--surface-2);
+    text-decoration: underline;
+  }
+
+  .file .sym {
     display: inline-block;
     width: 12px;
     font-weight: 700;
   }
 
-  .files li.added {
+  .file.added {
     color: var(--ok, #34d399);
   }
 
-  .files li.modified {
+  .file.modified {
     color: var(--warn, #fbbf24);
   }
 
-  .files li.deleted {
+  .file.deleted {
     color: var(--danger, #f87171);
   }
 
