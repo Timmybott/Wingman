@@ -112,9 +112,11 @@ returns text language sql security definer stable set search_path = public, vaul
 $$;
 
 -- Create a panel: encrypts the key server-side; plaintext never touches a table.
+-- search_path includes `extensions` because Supabase installs pgcrypto
+-- (pgp_sym_encrypt) there, not in `public`.
 create or replace function public.create_panel(
   p_team uuid, p_name text, p_base_url text, p_api_key text
-) returns uuid language plpgsql security definer set search_path = public as $$
+) returns uuid language plpgsql security definer set search_path = public, extensions as $$
 declare new_id uuid;
 begin
   if not public.is_team_member(p_team) then
@@ -129,7 +131,7 @@ end; $$;
 
 -- Decrypt a panel's key — team members only. This is the ONLY way to read it.
 create or replace function public.panel_api_key(p_panel uuid)
-returns text language plpgsql security definer set search_path = public as $$
+returns text language plpgsql security definer set search_path = public, extensions as $$
 declare enc bytea; tid uuid;
 begin
   select api_key_encrypted, team_id into enc, tid from public.panels where id = p_panel;

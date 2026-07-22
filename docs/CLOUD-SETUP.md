@@ -47,6 +47,16 @@ run it too. This adds the reliable team-creation function (and repairs the team
 INSERT rule). It is safe to re-run. Without it, creating a team fails with
 *"new row violates row-level security policy for table teams"*.
 
+Finally, run [`supabase/0003_fix_panel_crypto.sql`](../supabase/0003_fix_panel_crypto.sql)
+in another **new query**. It points the panel encryption functions at the
+`extensions` schema where Supabase keeps pgcrypto. Without it, saving a panel
+fails with *"function pgp_sym_encrypt(text, text) does not exist"*. Also safe to
+re-run.
+
+> If you set up a **fresh** project from scratch, `0001` already contains this
+> fix — you'd only need `0001` and `0002`. `0003` exists to repair projects
+> that ran an earlier `0001`.
+
 ## 4. Turn on email login
 
 1. Go to **Authentication → Providers → Email** and make sure it's enabled.
