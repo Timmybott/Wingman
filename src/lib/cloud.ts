@@ -390,6 +390,32 @@ export async function updateMyProfile(fields: {
   return data as UserProfile;
 }
 
+/**
+ * Teams a user belongs to that the viewer can see (Row-Level Security limits
+ * this to teams the viewer is also on — you see shared teams).
+ */
+export async function listUserTeams(userId: string): Promise<Team[]> {
+  const { data, error } = await supabase
+    .from("team_members")
+    .select(`teams(${TEAM_COLUMNS})`)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .map((row) => (row as { teams?: unknown }).teams as Team | null)
+    .filter((t): t is Team => t !== null);
+}
+
+/** Projects a user created that the viewer can see (RLS: shared teams only). */
+export async function listUserProjects(userId: string): Promise<CloudProject[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_COLUMNS)
+    .eq("created_by", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CloudProject[];
+}
+
 // --- Deploy history --------------------------------------------------------
 
 export type DeployKind = "deploy" | "rollback" | "sync";

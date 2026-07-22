@@ -8,6 +8,10 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Profiles & team pages cross-link.** A user's profile now lists the **teams**
+  and **projects** they're part of, each clickable. A team page lists all its
+  **members** (click through to their profile) and the team's **projects**.
+  You can hop profile → team → member → project without leaving the app.
 - **Panels tab: disk usage & project shortcuts.** Each server tile now shows a
   **Disk** meter alongside CPU and RAM. Servers that have a Feather project are
   marked with a project chip you can click to **jump straight to that project**.

@@ -1,22 +1,39 @@
 <script lang="ts">
   import { auth } from "../auth.svelte";
-  import { getTeam, listMembers, updateTeam, type Team, type TeamMember } from "../cloud";
+  import {
+    getTeam,
+    listMembers,
+    listProjects,
+    updateTeam,
+    type CloudProject,
+    type Team,
+    type TeamMember,
+  } from "../cloud";
   import Markdown from "./Markdown.svelte";
 
   let {
     teamId,
     onBack,
     onUpdated,
+    onOpenProfile,
+    onOpenProject,
   }: {
     teamId: string;
     onBack: () => void;
     onUpdated?: (team: Team) => void;
+    onOpenProfile?: (userId: string) => void;
+    onOpenProject?: (projectId: string) => void;
   } = $props();
 
   let team = $state<Team | null>(null);
   let members = $state<TeamMember[]>([]);
+  let projects = $state<CloudProject[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+
+  function memberName(m: TeamMember): string {
+    return m.display_name?.trim() || m.username || "Unknown";
+  }
 
   const isOwner = $derived(!!team && auth.user?.id === team.owner_id);
 
@@ -34,6 +51,7 @@
     loading = true;
     error = null;
     editing = false;
+    projects = [];
     Promise.all([getTeam(id), listMembers(id).catch(() => [] as TeamMember[])])
       .then(([t, m]) => {
         team = t;
@@ -41,6 +59,9 @@
       })
       .catch((e) => (error = String(e instanceof Error ? e.message : e)))
       .finally(() => (loading = false));
+    listProjects(id)
+      .then((p) => (projects = p))
+      .catch(() => (projects = []));
   });
 
   const ownerName = $derived.by(() => {
@@ -187,6 +208,35 @@
         {/if}
       </div>
 
+      {#if members.length > 0}
+        <div class="card">
+          <div class="card-head"><h2>Members</h2></div>
+          <div class="member-list">
+            {#each members as m (m.user_id)}
+              <button class="member" onclick={() => onOpenProfile?.(m.user_id)} title="View profile">
+                <span class="avatar">{memberName(m).charAt(0).toUpperCase()}</span>
+                <span class="m-name">{memberName(m)}</span>
+                <span class="m-role role-{m.role}">{m.role}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if projects.length > 0}
+        <div class="card">
+          <div class="card-head"><h2>Projects</h2></div>
+          <div class="chips">
+            {#each projects as p (p.id)}
+              <button class="chip" onclick={() => onOpenProject?.(p.id)} title="Open project">
+                {#if p.logo_url}<img class="chip-logo" src={p.logo_url} alt="" />{/if}
+                {p.name}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       {#if !isOwner}
         <p class="hint muted">Only the team owner can edit this page.</p>
       {/if}
@@ -281,6 +331,95 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  .member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 8px;
+    text-align: left;
+  }
+
+  .member:hover {
+    background: var(--surface-2);
+  }
+
+  .member .avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  .m-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .m-role {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+
+  .role-owner {
+    color: #fbbf24;
+  }
+
+  .role-admin {
+    color: #60a5fa;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .chip-logo {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    object-fit: cover;
   }
 
   .card-head {

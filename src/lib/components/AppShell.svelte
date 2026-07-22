@@ -39,6 +39,8 @@
   let view = $state<"projects" | "panels" | "members" | "profile" | "team">("projects");
   // Which user's profile the "profile" view shows (may be someone else's).
   let profileUserId = $state<string | null>(null);
+  // Which team the "team" view shows (may be another team you belong to).
+  let teamProfileId = $state<string | null>(null);
   // The tab to return to when leaving a profile/team page.
   let profileReturn = $state<"projects" | "panels" | "members">("projects");
   let panels = $state<CloudPanel[]>([]);
@@ -75,13 +77,16 @@
     view = "profile";
   }
 
-  function openTeamProfile() {
+  /** Open a team's profile — defaults to the active team. */
+  function openTeamProfile(id?: string) {
     rememberReturn();
+    teamProfileId = id ?? teamId ?? null;
     view = "team";
   }
 
   function onTeamUpdated(team: Team) {
-    teamState.activeTeamName = team.name;
+    // Only reflect a rename in the header if it's the currently active team.
+    if (team.id === teamId) teamState.activeTeamName = team.name;
   }
 
   const teamId = $derived(teamState.activeTeamId);
@@ -189,14 +194,21 @@
   <main>
     {#if view === "profile"}
       {#if profileUserId}
-        <UserProfile userId={profileUserId} onBack={() => (view = profileReturn)} />
+        <UserProfile
+          userId={profileUserId}
+          onBack={() => (view = profileReturn)}
+          onOpenTeam={openTeamProfile}
+          onOpenProject={goToProject}
+        />
       {/if}
     {:else if view === "team"}
-      {#if teamId}
+      {#if teamProfileId}
         <TeamProfile
-          {teamId}
+          teamId={teamProfileId}
           onBack={() => (view = profileReturn)}
           onUpdated={onTeamUpdated}
+          onOpenProfile={openProfile}
+          onOpenProject={goToProject}
         />
       {/if}
     {:else if view === "projects"}
