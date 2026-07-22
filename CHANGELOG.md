@@ -6,6 +6,18 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-07-22
+
+A project-experience release. Everything inside a project is clearer and more
+clickable: the **Overview** shows the team and creator as links, the **Deploy
+tab** separates uncommitted local edits from what will ship and lets you drill
+into any past deploy, **profiles and team pages** cross-link teams, projects and
+members, the **Files tab** edits files straight on the server, and the **Panels
+tab** shows disk usage and jumps to a server's project. Diffs are now clickable
+down to the line, projects can carry a logo, and several Overview/diff/issue
+bugs are fixed. Requires migrations `supabase/0012`–`0013` (see
+[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)).
+
 ### Added
 
 - **Uncommitted changes are called out in the Deploy tab.** The cloud-commit

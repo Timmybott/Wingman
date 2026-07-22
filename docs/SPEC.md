@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 22. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; **Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
+> Stand: 22. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3; **Abschnitt 10.8 = Projekt-Experience: Diffs, Interaktivität & Aufräumen v2.4**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -276,3 +276,40 @@ v2.3 arbeitet den Deploy/Commit/History/Rollback-Fluss zu **Cloud-Commits** um, 
 **Neue Meilensteine (v2.3):** M17 (Rename) · M18 (Backup-Verifikation) · M19 (Projekt→Panels) · M20 (Overview) · M21 (Profile + Admin) · M22a–f (Cloud-Commits/History/Rollback + Storage-Backend) · M23 (Issue-Verknüpfung) — alle abgeschlossen.
 
 **Bekannte Kante:** Nach einem Rollback wird die Server-Manifest-Referenz für den Diff nicht aktualisiert; der nächste Diff misst gegen den letzten *Deploy*, nicht den Rollback-Stand (unkritisch, später nachziehbar).
+
+### 10.8 Projekt-Experience: Diffs, Interaktivität & Aufräumen (v2.4)
+
+v2.4 macht alles **innerhalb eines Projekts** übersichtlicher, klickbarer und ehrlicher. Kein neues Datenmodell-Fundament, sondern gezielte Ausbauten und Bugfixes rund um Diff, Deploy, Issues, Profile, Files und Panels. Ergänzt die Migrationen `supabase/0012`–`0013`.
+
+**Diff-Engine & Baseline (M25).**
+- **Zeilengenaue Datei-Diffs:** `linediff.ts` (LCS-basiert, CRLF-normalisiert, Guard bei >4000 Zeilen) + `FileDiff.svelte`-Modal. Klick auf eine geänderte Datei zeigt hinzugefügte/entfernte/geänderte Zeilen — im Deploy-Tab (Server-Datei vs. lokal), in der Commit-Historie (Commit-Snapshot vs. Vorgänger, via `snapshot_file`) und in der Uncommitted-Ansicht.
+- **Baseline-Fix (0013):** Der „Changes since last deploy"-Diff maß gegen das letzte *released* Bündel — bei frisch importiertem Projekt (noch kein Deploy) galt darum **jede** Datei als neu. Neu: ein projektweiter Server-Stand-Baseline (`projects.server_manifest`, `set_server_manifest`, angepasstes `server_manifest`/`release_bundle`), gesetzt beim Import **und** beim Release.
+
+**Deploy-Tab-Ausbau (M24, M30).**
+- **Uncommitted-Ansicht:** getrennter Block „Uncommitted local changes" (lokal vs. neuester gespeicherter Commit im aktuellen Deploy), klickbar auf Datei-Ebene — zeigt, was noch commitet werden muss, unabhängig vom Gesamt-Deploy-Diff.
+- **Auto-Import beim Linken:** ein leerer, frisch gelinkter Ordner zieht sofort einmal die Server-Dateien (Baseline wird gesetzt).
+- **Deploy-History klickbar (M29):** Zeilen der Deploy-Timeline öffnen die geteilte History fokussiert auf diesen Deploy (Match über Release-Zeit), mit Commits + klickbaren Datei-Diffs.
+
+**Issues (M29).**
+- **Geschlossene Issues verknüpfbar:** Der „Fixed in"-Picker erschien früher nur bei Issues mit `bundle_id` und listete nur die Commits *dieses* Bündels — ein Fix in einem späteren Zyklus (Normalfall bei geschlossenen Issues) war nicht zuordenbar. Neu: der Picker zeigt **alle Projekt-Commits**, gruppiert nach Deploy (`<optgroup>`), für jedes Issue.
+
+**Files-Tab (M26).**
+- **Server-Dateien direkt editieren:** `FileEditor.svelte` lädt eine Datei (`read_server_file`), erlaubt Bearbeiten und speichert zurück (`write_server_file`) — Arbeiten direkt auf dem Server ohne lokale Kopie. Textdateien bis ~1 MB; Nicht-Text/zu groß → read-only.
+
+**Panels-Tab (M27).**
+- **Disk-Verbrauch** je Server-Kachel (neben CPU/RAM). Server mit aktivem Feather-Projekt sind **markiert** (Projekt-Chip) und **klickbar** → direkt ins Projekt.
+
+**Profile & Team-Seiten (M28).**
+- **Quer-Verlinkung:** User-Profil listet **Teams** und **Projekte** (klickbar); Team-Seite listet alle **Mitglieder** (→ Profil) und **Projekte**. Navigation Profil ⇄ Team ⇄ Mitglied ⇄ Projekt, RLS-scoped (`listUserTeams`/`listUserProjects` via `team_members`/`projects`).
+
+**Projekt-Logo (M24).**
+- `projects.logo_url` (0012); Logo auf Projektseite, in der Liste und in Profil-/Team-Chips; unter Settings setzbar.
+
+**Overview-Fixes (M24).**
+- Stat-Kacheln + Recent-Activity aktualisieren jetzt bei jedem Öffnen des Overview (vorher einmalig geladen → veraltet). Lokaler-Ordner-Teil von Overview nach **Settings** verschoben. Team-Chip (→ Team-Seite) und klickbarer Ersteller im Overview.
+
+**Cloud-Datenmodell-Erweiterung (`supabase/0012`–`0013`).**
+- `0012` `projects.logo_url`.
+- `0013` `projects.server_manifest` + `set_server_manifest` + Baseline-lesendes `server_manifest`/`release_bundle`.
+
+**Neue Meilensteine (v2.4):** M24 (Overview-Rework & Fixes) · M25 (Diff-Baseline + Datei-Diffs) · M26 (Files editieren) · M27 (Panels Disk + Marker) · M28 (Profile/Team-Quer-Links) · M29 (Issues + Deploy-History-Interaktivität) · M30 (Uncommitted-Ansicht & Politur) · M31 (Version 2.4.0 + Docs) — alle abgeschlossen.
