@@ -9,6 +9,7 @@
   import Footer from "./Footer.svelte";
   import Header from "./Header.svelte";
   import PanelManager from "./PanelManager.svelte";
+  import ProjectsScreen from "./ProjectsScreen.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
 
   let {
@@ -23,6 +24,7 @@
     onLogout: () => void;
   } = $props();
 
+  let view = $state<"projects" | "panels">("projects");
   let panels = $state<CloudPanel[]>([]);
   let activePanel = $state<CloudPanel | null>(null);
   let loading = $state(true);
@@ -107,8 +109,18 @@
     {onLogout}
     onDisconnect={disconnect}
   />
+  <nav class="tabs">
+    <button class:active={view === "projects"} onclick={() => (view = "projects")}>Projects</button>
+    <button class:active={view === "panels"} onclick={() => (view = "panels")}>
+      Panels{#if activePanel}<span class="dot"></span>{/if}
+    </button>
+  </nav>
   <main>
-    {#if loading}
+    {#if view === "projects"}
+      {#if teamId}
+        <ProjectsScreen {teamId} />
+      {/if}
+    {:else if loading}
       <p class="muted center">Loading…</p>
     {:else if activePanel}
       <Dashboard panel={activePanel} />
@@ -129,3 +141,43 @@
 {#if update}
   <UpdateDialog {update} onInstall={installUpdate} onLater={() => (update = null)} />
 {/if}
+
+<style>
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 10px 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .tabs button:hover {
+    color: var(--text);
+  }
+
+  .tabs button.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .tabs .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #34d399;
+  }
+</style>

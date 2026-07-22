@@ -91,3 +91,107 @@ export async function panelApiKey(panelId: string): Promise<string> {
   if (typeof data !== "string") throw new Error("could not decrypt panel key");
   return data;
 }
+
+// --- Projects (shared planning + deploy metadata) --------------------------
+//
+// A project is the team's unit of work: a name, a description, and — once a
+// panel is connected — a link to the server it deploys to. The local folder
+// each teammate deploys from stays on their own machine; only this shared
+// definition lives in the cloud.
+
+export type PostDeploy = "restart" | "notify";
+
+export interface CloudProject {
+  id: string;
+  team_id: string;
+  name: string;
+  description: string;
+  panel_id: string | null;
+  server_identifier: string | null;
+  target_dir: string;
+  build_command: string | null;
+  post_deploy: PostDeploy;
+  auto_backup: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
+const PROJECT_COLUMNS =
+  "id, team_id, name, description, panel_id, server_identifier, target_dir, build_command, post_deploy, auto_backup, created_by, created_at";
+
+export async function listProjects(teamId: string): Promise<CloudProject[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_COLUMNS)
+    .eq("team_id", teamId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function getProject(id: string): Promise<CloudProject> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_COLUMNS)
+    .eq("id", id)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export interface NewProject {
+  name: string;
+  description?: string;
+  panel_id?: string | null;
+  server_identifier?: string | null;
+}
+
+export async function createProject(teamId: string, input: NewProject): Promise<CloudProject> {
+  const { data: userData } = await supabase.auth.getUser();
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      team_id: teamId,
+      name: input.name.trim(),
+      description: input.description?.trim() ?? "",
+      panel_id: input.panel_id ?? null,
+      server_identifier: input.server_identifier?.trim() || null,
+      created_by: userData.user?.id ?? null,
+    })
+    .select(PROJECT_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Patch a project. Only the provided fields change. */
+export async function updateProject(
+  id: string,
+  patch: Partial<
+    Pick<
+      CloudProject,
+      | "name"
+      | "description"
+      | "panel_id"
+      | "server_identifier"
+      | "target_dir"
+      | "build_command"
+      | "post_deploy"
+      | "auto_backup"
+    >
+  >,
+): Promise<CloudProject> {
+  const { data, error } = await supabase
+    .from("projects")
+    .update(patch)
+    .eq("id", id)
+    .select(PROJECT_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const { error } = await supabase.from("projects").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}

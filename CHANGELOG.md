@@ -23,6 +23,12 @@ runs locally on each machine; the cloud holds the shared data.
   decrypted for team members. On this device the decrypted key is held in
   memory for the session only — never written to local disk.
 - New **Panels** screen to add, connect to and remove team panels.
+- **Projects** — a shared, team-wide list of everything you're working on.
+  Each project has a name and a description for plans and notes, can be linked
+  to a team panel, and opens into its own detail view. Create, edit and delete
+  are synced for the whole team. A **Projects / Panels** tab bar switches
+  between planning and the server dashboard. (Deploy history, issues and
+  richer planning attach to these projects in later milestones.)
 
 ### Changed
 
