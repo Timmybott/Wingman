@@ -1,13 +1,9 @@
 <script lang="ts">
   import { createServerFolder, deleteServerFiles, listServerFiles } from "../api";
   import { formatBytes } from "../format";
-  import type { FileEntry, Server } from "../types";
+  import type { FileEntry } from "../types";
 
-  let {
-    panelId,
-    server,
-    onClose,
-  }: { panelId: string; server: Server; onClose: () => void } = $props();
+  let { panelId, identifier }: { panelId: string; identifier: string } = $props();
 
   let segments = $state<string[]>([]);
   let entries = $state<FileEntry[]>([]);
@@ -24,7 +20,7 @@
     error = null;
     armedDelete = null;
     try {
-      entries = await listServerFiles(panelId, server.identifier, currentDir);
+      entries = await listServerFiles(panelId, identifier, currentDir);
     } catch (e) {
       error = String(e);
       entries = [];
@@ -39,9 +35,7 @@
   });
 
   function enter(entry: FileEntry) {
-    if (!entry.is_file) {
-      segments = [...segments, entry.name];
-    }
+    if (!entry.is_file) segments = [...segments, entry.name];
   }
 
   function jumpTo(index: number) {
@@ -60,7 +54,7 @@
     armedDelete = null;
     void (async () => {
       try {
-        await deleteServerFiles(panelId, server.identifier, currentDir, [entry.name]);
+        await deleteServerFiles(panelId, identifier, currentDir, [entry.name]);
         await load();
       } catch (e) {
         error = String(e);
@@ -73,7 +67,7 @@
     const name = newFolderName.trim();
     if (!name) return;
     try {
-      await createServerFolder(panelId, server.identifier, currentDir, name);
+      await createServerFolder(panelId, identifier, currentDir, name);
       newFolderName = "";
       await load();
     } catch (e) {
@@ -82,18 +76,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onClose()} />
-
-<button class="backdrop" aria-label="Close file browser" onclick={onClose}></button>
-<div class="browser" role="dialog" aria-modal="true" aria-label="Server files">
-  <header>
-    <div class="title">
-      <h3>{server.name}</h3>
-      <span class="muted">files</span>
-    </div>
-    <button class="ghost" onclick={onClose} title="Close (Esc)">✕</button>
-  </header>
-
+<div class="browser">
   <nav class="crumbs">
     <button class="crumb" onclick={() => jumpTo(0)}>/</button>
     {#each segments as segment, i (i)}
@@ -103,9 +86,7 @@
     <button class="ghost" onclick={load} title="Refresh">⟳</button>
   </nav>
 
-  {#if error}
-    <p class="error pad">{error}</p>
-  {/if}
+  {#if error}<p class="error pad">{error}</p>{/if}
 
   <div class="listing">
     {#if loading}
@@ -152,46 +133,14 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
-    border-radius: 0;
-    cursor: default;
-    z-index: 10;
-  }
-
   .browser {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(560px, 92vw);
     display: flex;
     flex-direction: column;
-    background: var(--bg);
-    border-left: 1px solid var(--border);
-    z-index: 11;
-  }
-
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
+    max-height: 60vh;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .title {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  h3 {
-    font-size: 14px;
   }
 
   .pad {
@@ -203,7 +152,7 @@
     align-items: center;
     gap: 2px;
     padding: 8px 12px;
-    background: var(--surface);
+    background: var(--surface-2);
     border-bottom: 1px solid var(--border);
     overflow-x: auto;
   }
@@ -229,6 +178,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 6px 0;
+    min-height: 120px;
   }
 
   .row {
@@ -309,7 +259,7 @@
     display: flex;
     gap: 8px;
     padding: 12px 16px;
-    background: var(--surface);
+    background: var(--surface-2);
     border-top: 1px solid var(--border);
   }
 </style>

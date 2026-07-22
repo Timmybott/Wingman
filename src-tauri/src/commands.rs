@@ -189,17 +189,14 @@ pub async fn send_console_command(
 // Projects & deploy
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-pub fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<ProjectConfig>> {
-    state.store.load_projects().map_err(|e| e.to_string())
-}
-
 // ---------------------------------------------------------------------------
 // Per-device local folder bindings for cloud projects
 // ---------------------------------------------------------------------------
 
-/// Bind a cloud project to a local folder on this device. Returns whether the
-/// folder is currently empty (so the caller can offer to import server files).
+/// Bind a cloud project to a local folder on this device, making sure it is a
+/// git repository (initializing one if needed). Returns whether the folder is
+/// currently empty, so the caller can offer to import the server's files
+/// before the first deploy.
 #[tauri::command]
 pub fn set_project_path(
     state: State<'_, AppState>,
@@ -213,6 +210,7 @@ pub fn set_project_path(
     let empty = std::fs::read_dir(dir)
         .map(|mut entries| entries.next().is_none())
         .unwrap_or(false);
+    git::ensure_repo(dir).map_err(|e| e.to_string())?;
     let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
     map.insert(project_id, path);
     state
@@ -241,79 +239,6 @@ pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> Cm
     state.store.save_project_paths(&map).map_err(|e| e.to_string())
 }
 
-/// Create or update a project. An empty id means "new". One project per
-/// server in v1 — a second link to the same server is rejected. Linking
-/// also makes sure the folder is a git repository (spec: the app
-/// initializes one when none exists).
-#[tauri::command]
-pub async fn save_project(
-    state: State<'_, AppState>,
-    mut project: ProjectConfig,
-) -> CmdResult<ProjectConfig> {
-    if !project.local_path.is_dir() {
-        return Err(format!(
-            "project folder does not exist: {}",
-            project.local_path.display()
-        ));
-    }
-    {
-        let path = project.local_path.clone();
-        tokio::task::spawn_blocking(move || git::ensure_repo(&path))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
-    }
-    if project.id.is_empty() {
-        project.id = wingman_core::config::new_project_id();
-    }
-    if project.name.trim().is_empty() {
-        project.name = project
-            .local_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Project".into());
-    }
-
-    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
-    let clash = projects
-        .iter()
-        .any(|p| p.server_identifier == project.server_identifier && p.id != project.id);
-    if clash {
-        return Err("this server already has a linked project".into());
-    }
-    match projects.iter_mut().find(|p| p.id == project.id) {
-        Some(existing) => *existing = project.clone(),
-        None => projects.push(project.clone()),
-    }
-    state
-        .store
-        .save_projects(&projects)
-        .map_err(|e| e.to_string())?;
-    Ok(project)
-}
-
-#[tauri::command]
-pub fn delete_project(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
-    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
-    projects.retain(|p| p.id != project_id);
-    state
-        .store
-        .save_projects(&projects)
-        .map_err(|e| e.to_string())?;
-    let _ = state.store.delete_deploy_record(&project_id);
-    Ok(())
-}
-
-fn find_project(state: &AppState, project_id: &str) -> CmdResult<ProjectConfig> {
-    state
-        .store
-        .load_projects()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|p| p.id == project_id)
-        .ok_or_else(|| "project not found".to_string())
-}
-
 /// Kick off a deploy. Progress is emitted as `deploy-event-{project_id}`
 /// Tauri events; a second deploy of the same project while one is running
 /// is rejected. Desktop notifications fire on failure, and on success when
@@ -322,10 +247,10 @@ fn find_project(state: &AppState, project_id: &str) -> CmdResult<ProjectConfig> 
 pub async fn deploy_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<()> {
-    let project = find_project(&state, &project_id)?;
     let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_deploy(client, state.store.clone(), project.clone());
     forward_engine_events(app, project, project_id, handle, "Deploy");
@@ -338,11 +263,11 @@ pub async fn deploy_project(
 pub async fn rollback_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     commit_id: String,
 ) -> CmdResult<()> {
-    let project = find_project(&state, &project_id)?;
     let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_rollback(client, state.store.clone(), project.clone(), commit_id);
     forward_engine_events(app, project, project_id, handle, "Rollback");
@@ -357,7 +282,7 @@ pub async fn rollback_project(
 pub async fn pull_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     mode: String,
 ) -> CmdResult<()> {
     let mode = match mode.as_str() {
@@ -365,8 +290,8 @@ pub async fn pull_project(
         "sync" => PullMode::SyncIfClean,
         other => return Err(format!("unknown pull mode `{other}`")),
     };
-    let project = find_project(&state, &project_id)?;
     let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_pull(client, state.store.clone(), project.clone(), mode);
     forward_engine_events(app, project, project_id, handle, "Sync");
@@ -386,9 +311,8 @@ pub struct RemoteDeployInfo {
 #[tauri::command]
 pub async fn check_remote_deploy(
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<RemoteDeployInfo> {
-    let project = find_project(&state, &project_id)?;
     let client = client_for(&state, &project.panel_id)?;
     let Some(remote) = read_remote_state(&client, &project)
         .await
@@ -401,7 +325,7 @@ pub async fn check_remote_deploy(
     };
     let record = state
         .store
-        .load_deploy_record(&project_id)
+        .load_deploy_record(&project.id)
         .map_err(|e| e.to_string())?;
     let newer = is_newer(&remote, record.as_ref());
     let dirty = if newer {
@@ -518,8 +442,7 @@ pub async fn create_server_folder(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn repo_status(state: State<'_, AppState>, project_id: String) -> CmdResult<RepoStatus> {
-    let project = find_project(&state, &project_id)?;
+pub async fn repo_status(project: ProjectConfig) -> CmdResult<RepoStatus> {
     tokio::task::spawn_blocking(move || {
         git::ensure_repo(&project.local_path)?;
         git::status(&project.local_path)
@@ -530,12 +453,7 @@ pub async fn repo_status(state: State<'_, AppState>, project_id: String) -> CmdR
 }
 
 #[tauri::command]
-pub async fn commit_project(
-    state: State<'_, AppState>,
-    project_id: String,
-    message: String,
-) -> CmdResult<CommitInfo> {
-    let project = find_project(&state, &project_id)?;
+pub async fn commit_project(project: ProjectConfig, message: String) -> CmdResult<CommitInfo> {
     let message = match message.trim() {
         "" => "Checkpoint".to_string(),
         trimmed => trimmed.to_string(),
@@ -551,11 +469,9 @@ pub async fn commit_project(
 
 #[tauri::command]
 pub async fn project_history(
-    state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     limit: Option<usize>,
 ) -> CmdResult<Vec<CommitInfo>> {
-    let project = find_project(&state, &project_id)?;
     tokio::task::spawn_blocking(move || {
         git::ensure_repo(&project.local_path)?;
         git::log(&project.local_path, limit.unwrap_or(50))
@@ -582,12 +498,11 @@ pub struct DeployStatus {
 #[tauri::command]
 pub async fn deploy_status(
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<DeployStatus> {
-    let project = find_project(&state, &project_id)?;
     let record = state
         .store
-        .load_deploy_record(&project_id)
+        .load_deploy_record(&project.id)
         .map_err(|e| e.to_string())?;
     let Some(record) = record else {
         return Ok(DeployStatus {

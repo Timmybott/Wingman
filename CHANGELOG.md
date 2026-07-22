@@ -16,6 +16,13 @@ Reworking the app around a clearer split: **Panels** for live server operation,
   core supports several panels connected simultaneously (server commands are
   scoped by panel). Deploy, git history and the file browser are moving off the
   server tiles and into the matching project (Projects tab).
+- **Deploy, history and files now live in the project.** Each project page
+  gains a **Deploy** tab (deploy button with live progress, "Import from
+  server", commit local changes, git history with one-click rollback, and the
+  shared deploy timeline) and a **Files** tab (the server file browser),
+  wired to the project's imported server and this device's local folder. The
+  deploy engine now takes the full project config from the app (built from the
+  cloud project + local folder), so there's no separate local project store.
 - **Projects now import a server.** Creating a project means picking a panel
   (required) and one of its existing servers — its RAM/CPU/disk limits are
   shown, and servers already imported are marked. A local folder is optional:

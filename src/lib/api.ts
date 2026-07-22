@@ -86,10 +86,6 @@ export function onServerEvent(
   );
 }
 
-export function listProjects(): Promise<ProjectConfig[]> {
-  return invoke<ProjectConfig[]>("list_projects");
-}
-
 // --- Per-device local folder bindings for cloud projects -------------------
 
 /**
@@ -110,18 +106,14 @@ export function removeProjectPath(projectId: string): Promise<void> {
   return invoke<void>("remove_project_path", { projectId });
 }
 
-/** Create (empty id) or update a project. */
-export function saveProject(project: ProjectConfig): Promise<ProjectConfig> {
-  return invoke<ProjectConfig>("save_project", { project });
-}
+/**
+ * The engine takes the full project config (built from the cloud project plus
+ * this device's local folder), so it needs no local project store.
+ */
 
-export function deleteProject(projectId: string): Promise<void> {
-  return invoke<void>("delete_project", { projectId });
-}
-
-/** Start a deploy; progress arrives via onDeployEvent. */
-export function deployProject(projectId: string): Promise<void> {
-  return invoke<void>("deploy_project", { projectId });
+/** Start a deploy; progress arrives via onDeployEvent (keyed by project id). */
+export function deployProject(project: ProjectConfig): Promise<void> {
+  return invoke<void>("deploy_project", { project });
 }
 
 export function onDeployEvent(
@@ -132,8 +124,8 @@ export function onDeployEvent(
 }
 
 /** Deploy an old commit; progress arrives on the same deploy-event channel. */
-export function rollbackProject(projectId: string, commitId: string): Promise<void> {
-  return invoke<void>("rollback_project", { projectId, commitId });
+export function rollbackProject(project: ProjectConfig, commitId: string): Promise<void> {
+  return invoke<void>("rollback_project", { project, commitId });
 }
 
 /**
@@ -141,28 +133,28 @@ export function rollbackProject(projectId: string, commitId: string): Promise<vo
  * right after linking; "sync" updates a clean working tree when another
  * device deployed. Progress arrives on the deploy-event channel.
  */
-export function pullProject(projectId: string, mode: "import" | "sync"): Promise<void> {
-  return invoke<void>("pull_project", { projectId, mode });
+export function pullProject(project: ProjectConfig, mode: "import" | "sync"): Promise<void> {
+  return invoke<void>("pull_project", { project, mode });
 }
 
-export function checkRemoteDeploy(projectId: string): Promise<RemoteDeployInfo> {
-  return invoke<RemoteDeployInfo>("check_remote_deploy", { projectId });
+export function checkRemoteDeploy(project: ProjectConfig): Promise<RemoteDeployInfo> {
+  return invoke<RemoteDeployInfo>("check_remote_deploy", { project });
 }
 
-export function repoStatus(projectId: string): Promise<RepoStatus> {
-  return invoke<RepoStatus>("repo_status", { projectId });
+export function repoStatus(project: ProjectConfig): Promise<RepoStatus> {
+  return invoke<RepoStatus>("repo_status", { project });
 }
 
-export function commitProject(projectId: string, message: string): Promise<CommitInfo> {
-  return invoke<CommitInfo>("commit_project", { projectId, message });
+export function commitProject(project: ProjectConfig, message: string): Promise<CommitInfo> {
+  return invoke<CommitInfo>("commit_project", { project, message });
 }
 
-export function projectHistory(projectId: string, limit?: number): Promise<CommitInfo[]> {
-  return invoke<CommitInfo[]>("project_history", { projectId, limit });
+export function projectHistory(project: ProjectConfig, limit?: number): Promise<CommitInfo[]> {
+  return invoke<CommitInfo[]>("project_history", { project, limit });
 }
 
-export function deployStatus(projectId: string): Promise<DeployStatus> {
-  return invoke<DeployStatus>("deploy_status", { projectId });
+export function deployStatus(project: ProjectConfig): Promise<DeployStatus> {
+  return invoke<DeployStatus>("deploy_status", { project });
 }
 
 export function listServerFiles(

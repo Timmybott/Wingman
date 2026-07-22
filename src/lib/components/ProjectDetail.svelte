@@ -1,17 +1,17 @@
 <script lang="ts">
   import {
     deleteProject,
-    listDeploys,
     updateProject,
     type CloudPanel,
     type CloudProject,
-    type DeployEntry,
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getProjectPath, removeProjectPath, setProjectPath } from "../api";
   import { toggleTaskInMarkdown } from "../markdown";
+  import DeployPanel from "./DeployPanel.svelte";
+  import FileBrowser from "./FileBrowser.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
   import Markdown from "./Markdown.svelte";
 
@@ -31,31 +31,10 @@
     onDeleted: (id: string) => void;
   } = $props();
 
-  type Tab = "overview" | "issues" | "deploys" | "settings";
+  type Tab = "overview" | "issues" | "deploy" | "files" | "settings";
   let tab = $state<Tab>("overview");
 
   let error = $state<string | null>(null);
-
-  // Deploys tab (lazy-loaded).
-  let deploys = $state<DeployEntry[]>([]);
-  let deploysLoading = $state(false);
-  let deploysLoaded = $state(false);
-  let deploysError = $state<string | null>(null);
-
-  async function openDeploys() {
-    tab = "deploys";
-    if (deploysLoaded || deploysLoading) return;
-    deploysLoading = true;
-    deploysError = null;
-    try {
-      deploys = await listDeploys(project.id);
-      deploysLoaded = true;
-    } catch (e) {
-      deploysError = String(e instanceof Error ? e.message : e);
-    } finally {
-      deploysLoading = false;
-    }
-  }
 
   // Overview: quick inline description edit.
   let editingDescription = $state(false);
@@ -215,14 +194,6 @@
     });
   }
 
-  function formatDateTime(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
 </script>
 
 <div class="detail">
@@ -245,9 +216,9 @@
   <nav class="subtabs">
     <button class:active={tab === "overview"} onclick={() => (tab = "overview")}>Overview</button>
     <button class:active={tab === "issues"} onclick={() => (tab = "issues")}>Issues</button>
-    <button class:active={tab === "deploys"} onclick={openDeploys}>Deploys</button>
+    <button class:active={tab === "deploy"} onclick={() => (tab = "deploy")}>Deploy</button>
+    <button class:active={tab === "files"} onclick={() => (tab = "files")}>Files</button>
     <button class:active={tab === "settings"} onclick={openSettings}>Settings</button>
-    <span class="soon" title="Coming in the next milestone">Planning soon</span>
   </nav>
 
   {#if error}<p class="error">{error}</p>{/if}
@@ -325,42 +296,14 @@
     </div>
   {:else if tab === "issues"}
     <IssuesPanel projectId={project.id} />
-  {:else if tab === "deploys"}
-    <div class="deploys">
-      {#if deploysLoading}
-        <p class="muted center">Loading deploys…</p>
-      {:else if deploysError}
-        <p class="error">{deploysError}</p>
-      {:else if deploys.length === 0}
-        <p class="muted center empty">
-          No deploys recorded yet. Deploys and rollbacks you run from the server
-          dashboard show up here for the whole team.
-        </p>
-      {:else}
-        <ul class="deploy-list">
-          {#each deploys as d (d.id)}
-            <li>
-              <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
-              <div class="d-main">
-                <span class="d-title">
-                  <span class="d-kind">{d.kind}</span>
-                  {#if d.commit_summary}
-                    <span class="d-summary">{d.commit_summary}</span>
-                  {:else if d.status === "failed" && d.message}
-                    <span class="d-summary fail">{d.message}</span>
-                  {/if}
-                </span>
-                <span class="d-meta muted">
-                  {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
-                  {#if d.files_count !== null}{d.files_count} files · {/if}
-                  {d.display_name?.trim() || d.username || "someone"} · {formatDateTime(d.created_at)}
-                </span>
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
+  {:else if tab === "deploy"}
+    <DeployPanel {project} {localPath} />
+  {:else if tab === "files"}
+    {#if project.panel_id && project.server_identifier}
+      <FileBrowser panelId={project.panel_id} identifier={project.server_identifier} />
+    {:else}
+      <p class="muted center empty">This project isn't linked to a server, so there are no files to browse.</p>
+    {/if}
   {:else}
     <form class="settings" onsubmit={saveSettings}>
       <div class="field">
@@ -484,13 +427,6 @@
     border-bottom-color: var(--accent);
   }
 
-  .subtabs .soon {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--text-muted);
-    opacity: 0.7;
-  }
-
   .overview {
     display: grid;
     grid-template-columns: 1fr 240px;
@@ -527,11 +463,6 @@
 
   h2 {
     font-size: 14px;
-  }
-
-  .description {
-    line-height: 1.65;
-    white-space: pre-wrap;
   }
 
   .hint {
@@ -675,79 +606,6 @@
     max-width: 420px;
     margin: 0 auto;
     line-height: 1.5;
-  }
-
-  .deploy-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .deploy-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-
-  .badge {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .badge.success {
-    background: #10b98122;
-    color: #34d399;
-  }
-
-  .badge.failed {
-    background: #ef444422;
-    color: #f87171;
-  }
-
-  .d-main {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .d-title {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .d-kind {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-  }
-
-  .d-summary {
-    font-weight: 600;
-    font-size: 14px;
-  }
-
-  .d-summary.fail {
-    font-weight: 400;
-    color: var(--text-muted);
-  }
-
-  .d-meta {
-    font-size: 12px;
   }
 
   @media (max-width: 640px) {
