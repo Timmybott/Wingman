@@ -29,18 +29,24 @@
     project,
     panels,
     members,
+    teamName,
     onBack,
     onChanged,
     onDeleted,
     onOpenServer,
+    onOpenTeam,
+    onOpenProfile,
   }: {
     project: CloudProject;
     panels: CloudPanel[];
     members: TeamMember[];
+    teamName: string;
     onBack: () => void;
     onChanged: (updated: CloudProject) => void;
     onDeleted: (id: string) => void;
     onOpenServer: (panelId: string, identifier: string) => void;
+    onOpenTeam: () => void;
+    onOpenProfile: (userId: string) => void;
   } = $props();
 
   // Only offer the jump-to-Panels shortcut when the project actually imports a
@@ -64,14 +70,21 @@
   let issues = $state<Issue[]>([]);
   let deploys = $state<DeployEntry[]>([]);
 
-  $effect(() => {
+  async function loadStats() {
     const id = project.id;
-    listIssues(id)
-      .then((i) => (issues = i))
-      .catch(() => (issues = []));
-    listDeploys(id)
-      .then((d) => (deploys = d))
-      .catch(() => (deploys = []));
+    try {
+      [issues, deploys] = await Promise.all([listIssues(id), listDeploys(id)]);
+    } catch (e) {
+      console.error("could not load project stats:", e);
+    }
+  }
+
+  // Reload the Overview's stats whenever it's shown (and on project change), so
+  // a deploy made in another tab is reflected the moment you come back — the
+  // stats were previously loaded only once on mount and went stale.
+  $effect(() => {
+    void project.id;
+    if (tab === "overview") void loadStats();
   });
 
   const openIssueCount = $derived(issues.filter((i) => i.status === "open").length);
@@ -92,6 +105,7 @@
   // Settings form buffer.
   let name = $state("");
   let description = $state("");
+  let logoUrl = $state("");
   let panelId = $state<string>("");
   let serverIdentifier = $state("");
   let targetDir = $state("");
@@ -106,6 +120,9 @@
   // Per-device local folder binding.
   let localPath = $state<string | null>(null);
   let pathBusy = $state(false);
+  // When a folder is linked to an empty directory, the Deploy tab imports the
+  // server's files into it once — set here, consumed by DeployPanel.
+  let autoImport = $state(false);
 
   $effect(() => {
     const id = project.id;
@@ -120,8 +137,14 @@
     pathBusy = true;
     error = null;
     try {
-      await setProjectPath(project.id, picked);
+      const empty = await setProjectPath(project.id, picked);
       localPath = picked;
+      // Fill an empty folder straight from the server so the diff is
+      // meaningful immediately — the import runs (with progress) in Deploy.
+      if (empty && project.panel_id && project.server_identifier) {
+        autoImport = true;
+        tab = "deploy";
+      }
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
     } finally {
@@ -151,6 +174,7 @@
   function seedSettings() {
     name = project.name;
     description = project.description;
+    logoUrl = project.logo_url ?? "";
     panelId = project.panel_id ?? "";
     serverIdentifier = project.server_identifier ?? "";
     targetDir = project.target_dir;
@@ -206,6 +230,7 @@
       const updated = await updateProject(project.id, {
         name: name.trim(),
         description: description.trim(),
+        logo_url: logoUrl.trim() || null,
         panel_id: panelId === "" ? null : panelId,
         server_identifier: serverIdentifier.trim() || null,
         target_dir: targetDir.trim(),
@@ -282,21 +307,31 @@
   <button class="back ghost" onclick={onBack}>← All projects</button>
 
   <header class="project-head">
-    <h1>{project.name}</h1>
-    <div class="subline">
-      {#if panelName}
-        <span class="tag">{panelName}</span>
-      {/if}
-      {#if project.server_identifier}
-        <span class="tag mono">{project.server_identifier}</span>
+    <div class="head-main">
+      {#if project.logo_url}
+        <img class="proj-logo" src={project.logo_url} alt={project.name} />
       {:else}
-        <span class="muted">Not linked to a server yet</span>
+        <span class="proj-logo placeholder">{project.name.charAt(0).toUpperCase()}</span>
       {/if}
-      {#if linkedServer}
-        <button class="ghost small open-panels" onclick={openServer} title="Show this server's tile in the Panels tab">
-          Open in Panels ↗
-        </button>
-      {/if}
+      <div class="head-text">
+        <h1>{project.name}</h1>
+        <div class="subline">
+          <button class="team-chip" onclick={onOpenTeam} title="Open the team page">👥 {teamName}</button>
+          {#if panelName}
+            <span class="tag">{panelName}</span>
+          {/if}
+          {#if project.server_identifier}
+            <span class="tag mono">{project.server_identifier}</span>
+          {:else}
+            <span class="muted">Not linked to a server yet</span>
+          {/if}
+          {#if linkedServer}
+            <button class="ghost small open-panels" onclick={openServer} title="Show this server's tile in the Panels tab">
+              Open in Panels ↗
+            </button>
+          {/if}
+        </div>
+      </div>
     </div>
   </header>
 
@@ -398,30 +433,21 @@
             <p class="muted">No deploys yet. The team's deploys and rollbacks show up here.</p>
           {/if}
         </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Local folder · this device</h2>
-          </div>
-          {#if localPath}
-            <p class="folder mono">{localPath}</p>
-            <div class="row-actions">
-              <button class="ghost small" onclick={chooseFolder} disabled={pathBusy}>Change…</button>
-              <button class="ghost small" onclick={unlinkFolder} disabled={pathBusy}>Unlink</button>
-            </div>
-          {:else}
-            <p class="muted">
-              Not set on this device. Link a folder to deploy this project from
-              here — each teammate picks their own (or none).
-            </p>
-            <div class="row-actions">
-              <button class="primary small" onclick={chooseFolder} disabled={pathBusy}>Choose folder…</button>
-            </div>
-          {/if}
-        </div>
       </div>
 
       <aside class="side">
+        <div class="meta-item">
+          <span class="label muted">Team</span>
+          <button class="link-btn" onclick={onOpenTeam} title="Open the team page">{teamName} ↗</button>
+        </div>
+        <div class="meta-item">
+          <span class="label muted">Local folder · this device</span>
+          {#if localPath}
+            <span class="mono folder">{localPath}</span>
+          {:else}
+            <span class="muted">Not set — add it in <button class="inline-link" onclick={openSettings}>Settings</button></span>
+          {/if}
+        </div>
         <div class="meta-item">
           <span class="label muted">Panel</span>
           <span>{panelName ?? "— not linked —"}</span>
@@ -446,14 +472,18 @@
         </div>
         <div class="meta-item">
           <span class="label muted">Created</span>
-          <span>{formatDate(project.created_at)}{#if creatorName} · by {creatorName}{/if}</span>
+          <span>
+            {formatDate(project.created_at)}{#if creatorName && creator} · by
+              <button class="inline-link" onclick={() => onOpenProfile(creator.user_id)}>{creatorName}</button>
+            {:else if creatorName} · by {creatorName}{/if}
+          </span>
         </div>
       </aside>
     </div>
   {:else if tab === "issues"}
-    <IssuesPanel projectId={project.id} />
+    <IssuesPanel projectId={project.id} {onOpenProfile} />
   {:else if tab === "deploy"}
-    <DeployPanel {project} {localPath} />
+    <DeployPanel {project} {localPath} {autoImport} onImported={() => (autoImport = false)} />
   {:else if tab === "files"}
     {#if project.panel_id && project.server_identifier}
       <FileBrowser panelId={project.panel_id} identifier={project.server_identifier} />
@@ -469,6 +499,10 @@
       <div class="field">
         <label for="s-desc">Description</label>
         <textarea id="s-desc" bind:value={description} rows="4"></textarea>
+      </div>
+      <div class="field">
+        <label for="s-logo">Logo image URL <span class="muted">(optional)</span></label>
+        <input id="s-logo" bind:value={logoUrl} placeholder="https://…/logo.png" spellcheck="false" autocomplete="off" />
       </div>
 
       <div class="two">
@@ -515,6 +549,26 @@
           {savingSettings ? "Saving…" : "Save changes"}
         </button>
       </div>
+
+      <fieldset class="local-folder">
+        <legend>Local folder · this device</legend>
+        {#if localPath}
+          <p class="folder mono">{localPath}</p>
+          <div class="row-actions">
+            <button type="button" class="ghost small" onclick={chooseFolder} disabled={pathBusy}>Change…</button>
+            <button type="button" class="ghost small" onclick={unlinkFolder} disabled={pathBusy}>Unlink</button>
+          </div>
+        {:else}
+          <p class="muted">
+            Not set on this device. Link a folder to deploy this project from here —
+            each teammate picks their own (or none). Linking an empty folder imports
+            the server's current files into it automatically.
+          </p>
+          <div class="row-actions">
+            <button type="button" class="primary small" onclick={chooseFolder} disabled={pathBusy}>Choose folder…</button>
+          </div>
+        {/if}
+      </fieldset>
 
       <div class="danger-zone">
         <h3>Danger zone</h3>
@@ -572,6 +626,33 @@
     margin-bottom: 14px;
   }
 
+  .head-main {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .proj-logo {
+    flex-shrink: 0;
+    width: 52px;
+    height: 52px;
+    border-radius: 11px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+  }
+
+  .proj-logo.placeholder {
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    font-weight: 700;
+    font-size: 22px;
+  }
+
+  .head-text {
+    min-width: 0;
+  }
+
   h1 {
     font-size: 24px;
     margin-bottom: 8px;
@@ -582,6 +663,33 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
+    flex-wrap: wrap;
+  }
+
+  .team-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 11px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .team-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .inline-link {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font: inherit;
+  }
+
+  .inline-link:hover {
+    text-decoration: underline;
   }
 
   .open-panels {
@@ -890,6 +998,10 @@
     color: var(--text-muted);
     font-size: 12px;
     padding: 0 4px;
+  }
+
+  .local-folder {
+    margin-top: 22px;
   }
 
   .radio,

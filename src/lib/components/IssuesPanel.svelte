@@ -3,7 +3,13 @@
   import { createIssue, listIssues, type Issue } from "../cloud";
   import IssueThread from "./IssueThread.svelte";
 
-  let { projectId }: { projectId: string } = $props();
+  let {
+    projectId,
+    onOpenProfile,
+  }: {
+    projectId: string;
+    onOpenProfile?: (userId: string) => void;
+  } = $props();
 
   let issues = $state<Issue[]>([]);
   let loading = $state(true);

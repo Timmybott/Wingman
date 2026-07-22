@@ -13,10 +13,16 @@
 
   let {
     teamId,
+    teamName,
     onOpenServer,
+    onOpenTeam,
+    onOpenProfile,
   }: {
     teamId: string;
+    teamName: string;
     onOpenServer: (panelId: string, identifier: string) => void;
+    onOpenTeam: () => void;
+    onOpenProfile: (userId: string) => void;
   } = $props();
 
   let projects = $state<CloudProject[]>([]);
@@ -84,10 +90,13 @@
     project={selected}
     {panels}
     {members}
+    {teamName}
     onBack={() => (selectedId = null)}
     {onChanged}
     {onDeleted}
     {onOpenServer}
+    {onOpenTeam}
+    {onOpenProfile}
   />
 {:else}
   <div class="projects">
@@ -109,19 +118,26 @@
         {#each projects as project (project.id)}
           <li>
             <button class="card" onclick={() => (selectedId = project.id)}>
-              <span class="name">{project.name}</span>
-              {#if project.description.trim() !== ""}
-                <span class="muted desc">{project.description}</span>
+              {#if project.logo_url}
+                <img class="card-logo" src={project.logo_url} alt={project.name} />
               {:else}
-                <span class="muted desc empty">No description yet</span>
+                <span class="card-logo placeholder">{project.name.charAt(0).toUpperCase()}</span>
               {/if}
-              <span class="tags">
-                {#if panelName(project.panel_id)}
-                  <span class="tag">{panelName(project.panel_id)}</span>
+              <span class="card-body">
+                <span class="name">{project.name}</span>
+                {#if project.description.trim() !== ""}
+                  <span class="muted desc">{project.description}</span>
+                {:else}
+                  <span class="muted desc empty">No description yet</span>
                 {/if}
-                {#if project.server_identifier}
-                  <span class="tag mono">{project.server_identifier}</span>
-                {/if}
+                <span class="tags">
+                  {#if panelName(project.panel_id)}
+                    <span class="tag">{panelName(project.panel_id)}</span>
+                  {/if}
+                  {#if project.server_identifier}
+                    <span class="tag mono">{project.server_identifier}</span>
+                  {/if}
+                </span>
               </span>
             </button>
           </li>
@@ -180,8 +196,8 @@
 
   .card {
     display: flex;
-    flex-direction: column;
-    gap: 5px;
+    align-items: flex-start;
+    gap: 14px;
     width: 100%;
     text-align: left;
     background: var(--surface);
@@ -192,6 +208,31 @@
 
   .card:hover {
     border-color: var(--accent);
+  }
+
+  .card-logo {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 9px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+  }
+
+  .card-logo.placeholder {
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    flex: 1;
   }
 
   .name {

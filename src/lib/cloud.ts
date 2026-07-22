@@ -161,6 +161,7 @@ export interface CloudProject {
   team_id: string;
   name: string;
   description: string;
+  logo_url: string | null;
   panel_id: string | null;
   server_identifier: string | null;
   target_dir: string;
@@ -172,7 +173,7 @@ export interface CloudProject {
 }
 
 const PROJECT_COLUMNS =
-  "id, team_id, name, description, panel_id, server_identifier, target_dir, build_command, post_deploy, auto_backup, created_by, created_at";
+  "id, team_id, name, description, logo_url, panel_id, server_identifier, target_dir, build_command, post_deploy, auto_backup, created_by, created_at";
 
 export async function listProjects(teamId: string): Promise<CloudProject[]> {
   const { data, error } = await supabase
@@ -227,6 +228,7 @@ export async function updateProject(
       CloudProject,
       | "name"
       | "description"
+      | "logo_url"
       | "panel_id"
       | "server_identifier"
       | "target_dir"

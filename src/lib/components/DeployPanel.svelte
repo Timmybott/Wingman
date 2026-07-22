@@ -25,7 +25,17 @@
   import CloudCommits from "./CloudCommits.svelte";
   import ProjectHistory from "./ProjectHistory.svelte";
 
-  let { project, localPath }: { project: CloudProject; localPath: string | null } = $props();
+  let {
+    project,
+    localPath,
+    autoImport = false,
+    onImported,
+  }: {
+    project: CloudProject;
+    localPath: string | null;
+    autoImport?: boolean;
+    onImported?: () => void;
+  } = $props();
 
   const config = $derived<ProjectConfig | null>(
     localPath
@@ -78,7 +88,15 @@
   let unlisten: UnlistenFn | undefined;
   onMount(() => {
     void loadDeploys();
-    onDeployEvent(project.id, handleStep).then((u) => (unlisten = u));
+    onDeployEvent(project.id, handleStep).then((u) => {
+      unlisten = u;
+      // Auto-import the server's files right after linking an empty folder, so
+      // the diff is meaningful immediately. Listen first, then start.
+      if (autoImport && config) {
+        onImported?.();
+        void importFiles();
+      }
+    });
     return () => unlisten?.();
   });
 

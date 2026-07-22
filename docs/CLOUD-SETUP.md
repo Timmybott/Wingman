@@ -94,10 +94,13 @@ in a **new query**. It adds per-commit and per-deploy content manifests (so a
 `server_manifest` functions, and the manifest-aware `release_bundle`. Also
 idempotent.
 
-Last, run [`supabase/0011_issue_links.sql`](../supabase/0011_issue_links.sql)
+Then run [`supabase/0011_issue_links.sql`](../supabase/0011_issue_links.sql)
 in a **new query**. It links issues to deploys and commits: a new issue is
 filed against the current Deploy, and a resolved issue can be pinned to the
 commit that fixed it (`assign_issue_commit`). Also idempotent.
+
+Last, run [`supabase/0012_project_logo.sql`](../supabase/0012_project_logo.sql)
+in a **new query**. It adds a logo image URL to projects. Also idempotent.
 
 ## 3b. Deploy the storage function (cloud commits)
 

@@ -176,7 +176,13 @@
       {/if}
     {:else if view === "projects"}
       {#if teamId}
-        <ProjectsScreen {teamId} onOpenServer={goToServer} />
+        <ProjectsScreen
+          {teamId}
+          {teamName}
+          onOpenServer={goToServer}
+          onOpenTeam={openTeamProfile}
+          onOpenProfile={openProfile}
+        />
       {/if}
     {:else if view === "members"}
       {#if teamId}

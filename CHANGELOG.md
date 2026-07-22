@@ -6,6 +6,25 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Project logos.** A project can carry a logo image (URL), shown on its page
+  and in the project list. Set it under Settings. Requires migration `0012`.
+
+### Changed
+
+- **Overview reworked.** The **Local folder** binding moved from the Overview
+  to **Settings**, and linking an empty folder now **imports the server's
+  files automatically**. The Overview sidebar shows the **team** (click to open
+  the team page) and the creator is clickable to their profile.
+
+### Fixed
+
+- **Overview stats & recent activity now stay current.** The stat tiles (open
+  issues, deploys, last deploy, current commit) and the Recent-activity list
+  loaded only once and went stale — showing 0 / "No deploys yet" after a
+  deploy. They now reload every time the Overview is opened.
+
 ## [2.3.0] — 2026-07-22
 
 A team-collaboration release. Feather's deploy/commit/history flow is reworked
