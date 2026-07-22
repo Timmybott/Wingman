@@ -6,6 +6,28 @@ export interface PanelConfig {
   base_url: string;
 }
 
+// Mirrors feather_core::snapshot (M22): content manifests and diffs.
+
+/** path → content hash. */
+export type Manifest = Record<string, string>;
+
+export type ChangeKind = "added" | "modified" | "deleted";
+
+export interface FileChange {
+  path: string;
+  change: ChangeKind;
+}
+
+export interface Diff {
+  changes: FileChange[];
+}
+
+/** Result of packing + uploading a commit snapshot (SnapshotUpload in Rust). */
+export interface SnapshotUpload {
+  files: number;
+  manifest: Manifest;
+}
+
 export interface ServerLimits {
   /** MiB, 0/null = unlimited */
   memory: number | null;

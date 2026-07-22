@@ -149,6 +149,49 @@ pub fn snapshot_zip(root: &Path) -> Result<(Vec<u8>, Manifest), Error> {
     Ok((cursor.into_inner(), manifest))
 }
 
+/// Pack the working tree at `root` and upload it to the storage backend
+/// through the `feather-storage` Edge Function, which holds the storage
+/// server's key. Returns the file count and manifest of what was uploaded.
+///
+/// `endpoint` is the function URL (`…/functions/v1/feather-storage`); `token`
+/// is the caller's Supabase session access token and `anon_key` the project's
+/// anon key — the function authorizes the caller and derives the path itself
+/// from `project_id`/`commit_id`, so no path is ever sent.
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_snapshot(
+    root: &Path,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<(usize, Manifest), Error> {
+    let (bytes, manifest) = snapshot_zip(root)?;
+    let files = manifest.len();
+    let mut url = url::Url::parse(endpoint).map_err(|e| Error::Deploy(e.to_string()))?;
+    url.query_pairs_mut()
+        .append_pair("action", "put")
+        .append_pair("project_id", project_id)
+        .append_pair("commit_id", commit_id)
+        .append_pair("kind", kind);
+    let res = reqwest::Client::new()
+        .post(url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("apikey", anon_key)
+        .header("content-type", "application/octet-stream")
+        .body(bytes)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        return Err(Error::Deploy(format!(
+            "snapshot upload failed: HTTP {}",
+            res.status().as_u16()
+        )));
+    }
+    Ok((files, manifest))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

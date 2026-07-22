@@ -8,6 +8,17 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Cloud commits in the Deploy tab (M22).** The Deploy tab now opens with a
+  **"Changes since last deploy"** panel: a live diff of your local folder
+  against the current server state (added/modified/deleted, with an
+  expandable file list). Commit your changes with a message (e.g.
+  "Commit v2.4.0") and the snapshot is packed and uploaded to the storage
+  backend and added to the project's **current Deploy** — a shared bundle
+  every teammate's commits accumulate into, shown with who committed what.
+  Pressing **Deploy** ships the files (unchanged, proven engine) and releases
+  the bundle, recording the deployed state so the diff resets and a fresh
+  Deploy opens. Requires migrations `0009` + `0010` and the `feather-storage`
+  function. The old per-project git commit box is replaced by this flow.
 - **Cloud-commit backend scaffolding (M22, foundation).** Groundwork for the
   reworked Deploy/commit/history flow where each member commits locally and
   everyone's commits bundle into the project's current Deploy: a new

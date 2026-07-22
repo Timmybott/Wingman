@@ -2,6 +2,7 @@
 // milestone (panels, projects, deploys, issues).
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "./supabase";
+import type { Manifest } from "./types";
 
 export interface Team {
   id: string;
@@ -621,6 +622,7 @@ export interface CloudCommit {
   author_name: string | null;
 }
 
+
 function bundleFrom(data: unknown): DeployBundle {
   return (Array.isArray(data) ? data[0] : data) as DeployBundle;
 }
@@ -632,40 +634,55 @@ export async function currentBundle(projectId: string): Promise<DeployBundle> {
   return bundleFrom(data);
 }
 
-/** Create a commit in the project's current pending bundle. */
-export async function createCommit(
-  projectId: string,
-  message: string,
-  files: number | null,
-): Promise<CloudCommit> {
+/** Create a commit in the project's current pending bundle (files/manifest are
+ *  filled in later by finalizeCommit, once the snapshot upload succeeds). */
+export async function createCommit(projectId: string, message: string): Promise<CloudCommit> {
   const { data, error } = await supabase.rpc("create_commit", {
     p_project: projectId,
     p_message: message,
-    p_files: files,
+    p_files: null,
   });
   if (error) throw new Error(error.message);
   return (Array.isArray(data) ? data[0] : data) as CloudCommit;
 }
 
-/** Flag a commit's snapshot as uploaded (after putSnapshot succeeds). */
-export async function markCommitStored(commitId: string): Promise<void> {
-  const { error } = await supabase.rpc("mark_commit_stored", { p_commit: commitId });
+/** Record a commit's file count + manifest and flag its snapshot as stored. */
+export async function finalizeCommit(
+  commitId: string,
+  files: number,
+  manifest: Manifest,
+): Promise<void> {
+  const { error } = await supabase.rpc("finalize_commit", {
+    p_commit: commitId,
+    p_files: files,
+    p_manifest: manifest,
+  });
   if (error) throw new Error(error.message);
 }
 
-/** Release the current bundle: ship it and open a fresh one. */
+/** Release the current bundle: ship it and open a fresh one, recording the
+ *  manifest that was deployed (the new server state). */
 export async function releaseBundle(
   projectId: string,
   files: number | null,
   message: string | null,
+  manifest: Manifest,
 ): Promise<DeployBundle> {
   const { data, error } = await supabase.rpc("release_bundle", {
     p_project: projectId,
     p_files: files,
     p_message: message,
+    p_manifest: manifest,
   });
   if (error) throw new Error(error.message);
   return bundleFrom(data);
+}
+
+/** The current server-state manifest (newest released bundle's deployed set). */
+export async function serverManifest(projectId: string): Promise<Manifest> {
+  const { data, error } = await supabase.rpc("server_manifest", { p_project: projectId });
+  if (error) throw new Error(error.message);
+  return (data ?? {}) as Manifest;
 }
 
 /** All bundles of a project, newest first. */
@@ -714,13 +731,19 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
 
 export type SnapshotKind = "commit" | "rollback";
 
-const STORAGE_ENDPOINT = `${SUPABASE_URL}/functions/v1/feather-storage`;
+export const STORAGE_ENDPOINT = `${SUPABASE_URL}/functions/v1/feather-storage`;
+export { SUPABASE_ANON_KEY as anonKey };
 
-async function storageHeaders(): Promise<Record<string, string>> {
+/** The signed-in user's Supabase access token (for the storage Edge Function). */
+export async function sessionToken(): Promise<string> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error("not signed in");
-  return { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY };
+  return token;
+}
+
+async function storageHeaders(): Promise<Record<string, string>> {
+  return { Authorization: `Bearer ${await sessionToken()}`, apikey: SUPABASE_ANON_KEY };
 }
 
 function storageUrl(

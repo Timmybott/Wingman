@@ -83,10 +83,16 @@ Markdown README) to user accounts and teams, restricts team editing to the
 owner, and adds `set_member_role` so the owner can grant or revoke admin
 rights. Also idempotent.
 
-Last, run [`supabase/0009_commits.sql`](../supabase/0009_commits.sql) in a
+Then run [`supabase/0009_commits.sql`](../supabase/0009_commits.sql) in a
 **new query**. It adds the cloud-commit and deploy-bundle tables (metadata
 only — the file snapshots live on the storage backend) and their RPCs, which
 power the reworked Deploy/commit/history flow. Also idempotent.
+
+Last, run [`supabase/0010_commit_manifests.sql`](../supabase/0010_commit_manifests.sql)
+in a **new query**. It adds per-commit and per-deploy content manifests (so a
+"local vs server" diff needs no download), the `finalize_commit` /
+`server_manifest` functions, and the manifest-aware `release_bundle`. Also
+idempotent.
 
 ## 3b. Deploy the storage function (cloud commits)
 

@@ -2,22 +2,24 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
-    commitProject,
     deployProject,
     onDeployEvent,
     projectHistory,
+    projectManifest,
     pullProject,
-    repoStatus,
     rollbackProject,
   } from "../api";
   import {
+    currentBundle,
     listDeploys,
     recordDeploy,
+    releaseBundle,
     type CloudProject,
     type DeployEntry,
     type DeployKind,
   } from "../cloud";
-  import type { DeployStep, ProjectConfig, RepoStatus } from "../types";
+  import type { DeployStep, ProjectConfig } from "../types";
+  import CloudCommits from "./CloudCommits.svelte";
   import HistoryView from "./HistoryView.svelte";
 
   let { project, localPath }: { project: CloudProject; localPath: string | null } = $props();
@@ -39,13 +41,13 @@
   );
 
   let step = $state<DeployStep | null>(null);
-  let gitStatus = $state<RepoStatus | null>(null);
-  let commitMessage = $state("");
-  let committing = $state(false);
   let showHistory = $state(false);
   let error = $state<string | null>(null);
   let backupWarning = $state<string | null>(null);
   let deploys = $state<DeployEntry[]>([]);
+  // Bumped after a deploy so the cloud-commits panel reloads (server state
+  // changed → diff and the current Deploy reset).
+  let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
 
@@ -73,7 +75,6 @@
   let unlisten: UnlistenFn | undefined;
   onMount(() => {
     void loadDeploys();
-    void refreshStatus();
     onDeployEvent(project.id, handleStep).then((u) => (unlisten = u));
     return () => unlisten?.();
   });
@@ -83,18 +84,6 @@
       deploys = await listDeploys(project.id);
     } catch {
       // timeline is best effort
-    }
-  }
-
-  async function refreshStatus() {
-    if (!config) {
-      gitStatus = null;
-      return;
-    }
-    try {
-      gitStatus = await repoStatus(config);
-    } catch {
-      gitStatus = null;
     }
   }
 
@@ -109,7 +98,6 @@
     }
     step = s;
     if (s.step === "done" || s.step === "failed") {
-      void refreshStatus();
       const kind = currentKind;
       currentKind = null;
       if (kind) void record(kind, s);
@@ -138,12 +126,34 @@
           commitSummary: summary,
           files: s.files,
         });
+        // A successful deploy ships the current Deploy bundle: mark it released
+        // (recording the deployed state) so the diff resets and the next round
+        // of commits starts a fresh Deploy. Best effort — never fails the run.
+        if (kind === "deploy") await releaseCurrentBundle();
       } else if (s.step === "failed") {
         await recordDeploy({ projectId: project.id, kind, status: "failed", message: s.message });
       }
       await loadDeploys();
     } catch (e) {
       console.error("could not record deploy:", e);
+    }
+  }
+
+  /**
+   * Mark the project's current Deploy bundle released, recording the manifest
+   * now on the server so future "local vs server" diffs are correct and a
+   * fresh Deploy opens for the next commits. Best effort: the files are already
+   * live, so bundle bookkeeping must never surface as a deploy failure.
+   */
+  async function releaseCurrentBundle() {
+    if (!config) return;
+    try {
+      const manifest = await projectManifest(config);
+      await currentBundle(project.id); // ensure a pending bundle exists to release
+      await releaseBundle(project.id, Object.keys(manifest).length, null, manifest);
+      cloudRefresh += 1;
+    } catch (e) {
+      console.error("bundle release skipped:", e);
     }
   }
 
@@ -172,22 +182,6 @@
       await pullProject(config, "import");
     } catch (e) {
       step = { step: "failed", message: String(e) };
-    }
-  }
-
-  async function commit(event: SubmitEvent) {
-    event.preventDefault();
-    if (!config) return;
-    committing = true;
-    error = null;
-    try {
-      await commitProject(config, commitMessage);
-      commitMessage = "";
-      await refreshStatus();
-    } catch (e) {
-      error = String(e);
-    } finally {
-      committing = false;
     }
   }
 
@@ -226,6 +220,8 @@
       </p>
     </div>
   {:else}
+    <CloudCommits {project} {config} refresh={cloudRefresh} onCommitted={loadDeploys} />
+
     <div class="card actions-card">
       <div class="deploy-row">
         <button class="primary" onclick={deploy} disabled={running}>
@@ -260,21 +256,6 @@
       {#if backupWarning}
         <p class="warn" title={backupWarning}>⚠ No backup was made — {backupWarning}</p>
       {/if}
-
-      <form class="commit" onsubmit={commit}>
-        {#if gitStatus?.dirty}
-          <p class="changes muted">
-            {gitStatus.changed.length}
-            {gitStatus.changed.length === 1 ? "uncommitted change" : "uncommitted changes"}
-          </p>
-          <div class="commit-row">
-            <input bind:value={commitMessage} placeholder="Commit message" autocomplete="off" disabled={committing} />
-            <button type="submit" class="ghost" disabled={committing}>Commit</button>
-          </div>
-        {:else}
-          <p class="muted small">Working tree clean.</p>
-        {/if}
-      </form>
     </div>
   {/if}
 
@@ -308,7 +289,7 @@
   <HistoryView
     project={config}
     {onRollback}
-    onChanged={refreshStatus}
+    onChanged={() => (cloudRefresh += 1)}
     onClose={() => (showHistory = false)}
   />
 {/if}
@@ -361,31 +342,6 @@
   @keyframes pulse {
     0%, 100% { opacity: 0.35; }
     50% { opacity: 1; }
-  }
-
-  .commit {
-    margin-top: 14px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-
-  .changes {
-    margin: 0 0 8px;
-    font-size: 12px;
-  }
-
-  .commit-row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .commit-row input {
-    flex: 1;
-  }
-
-  .small {
-    font-size: 12px;
-    margin: 0;
   }
 
   .timeline-title {
