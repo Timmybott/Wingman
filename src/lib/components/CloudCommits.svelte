@@ -1,10 +1,17 @@
 <script lang="ts">
-  import { projectDiff, readLocalFile, readServerFile, uploadCommitSnapshot } from "../api";
+  import {
+    projectDiff,
+    readLocalFile,
+    readServerFile,
+    snapshotFile,
+    uploadCommitSnapshot,
+  } from "../api";
   import {
     anonKey,
     createCommit,
     currentBundle,
     finalizeCommit,
+    getCommitManifest,
     listCommits,
     serverManifest,
     sessionToken,
@@ -31,10 +38,16 @@
 
   let storageOk = $state<boolean | null>(null);
   let diff = $state<Diff | null>(null);
+  // Local changes not yet committed (local vs the newest stored commit in this
+  // Deploy). Null when there are no commits yet — then "changes since last
+  // deploy" already covers everything, so we don't show a second panel.
+  let uncommittedDiff = $state<Diff | null>(null);
+  let latestStoredCommitId = $state<string | null>(null);
   let bundle = $state<DeployBundle | null>(null);
   let commits = $state<CloudCommit[]>([]);
   let loading = $state(true);
   let showFiles = $state(false);
+  let showUncommitted = $state(false);
 
   let message = $state("");
   let committing = $state(false);
@@ -71,18 +84,46 @@
     }
   }
 
-  const counts = $derived.by(() => {
+  /** Open the line diff for an uncommitted path (last commit's snapshot vs local). */
+  async function showUncommittedFileDiff(path: string, change: ChangeKind) {
+    if (!latestStoredCommitId) return;
+    openDiff = { path, oldText: "", newText: "", loading: true, error: null };
+    try {
+      const token = await sessionToken();
+      const [oldText, newText] = await Promise.all([
+        change === "added"
+          ? Promise.resolve("")
+          : snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, latestStoredCommitId, path),
+        change === "deleted" ? Promise.resolve("") : readLocalFile(config, path),
+      ]);
+      openDiff = { path, oldText, newText, loading: false, error: null };
+    } catch (e) {
+      openDiff = {
+        path,
+        oldText: "",
+        newText: "",
+        loading: false,
+        error: String(e instanceof Error ? e.message : e),
+      };
+    }
+  }
+
+  function tally(d: Diff | null): { a: number; m: number; d: number } {
     let a = 0;
     let m = 0;
-    let d = 0;
-    for (const c of diff?.changes ?? []) {
+    let del = 0;
+    for (const c of d?.changes ?? []) {
       if (c.change === "added") a++;
       else if (c.change === "modified") m++;
-      else d++;
+      else del++;
     }
-    return { a, m, d };
-  });
+    return { a, m, d: del };
+  }
+
+  const counts = $derived(tally(diff));
+  const uncommittedCounts = $derived(tally(uncommittedDiff));
   const hasChanges = $derived((diff?.changes.length ?? 0) > 0);
+  const hasUncommitted = $derived((uncommittedDiff?.changes.length ?? 0) > 0);
 
   // Reload whenever the parent bumps `refresh` (e.g. after a deploy).
   $effect(() => {
@@ -101,6 +142,15 @@
       diff = d;
       bundle = b;
       commits = await listCommits(project.id, b.id);
+      // Uncommitted changes = local vs the newest stored commit in this Deploy.
+      const latest = commits.find((c) => c.stored) ?? null;
+      latestStoredCommitId = latest?.id ?? null;
+      if (latest) {
+        const commitBase = await getCommitManifest(latest.id);
+        uncommittedDiff = await projectDiff(config, commitBase);
+      } else {
+        uncommittedDiff = null;
+      }
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
     } finally {
@@ -186,6 +236,41 @@
           </li>
         {/each}
       </ul>
+    {/if}
+
+    {#if uncommittedDiff !== null}
+      <div class="uncommitted" class:dirty={hasUncommitted}>
+        {#if hasUncommitted}
+          <div class="head">
+            <h4 class="u-title">⚠ Uncommitted local changes</h4>
+            <span class="summary">
+              <span class="added">+{uncommittedCounts.a}</span>
+              <span class="modified">~{uncommittedCounts.m}</span>
+              <span class="deleted">−{uncommittedCounts.d}</span>
+              <button class="ghost tiny" onclick={() => (showUncommitted = !showUncommitted)}>
+                {showUncommitted ? "Hide" : "Show"} files
+              </button>
+            </span>
+          </div>
+          <p class="hint muted">
+            These edits are newer than your last commit — commit them to include
+            them in the next deploy.
+          </p>
+          {#if showUncommitted}
+            <ul class="files">
+              {#each uncommittedDiff.changes as change (change.path)}
+                <li>
+                  <button class="file {change.change}" onclick={() => showUncommittedFileDiff(change.path, change.change)} title="View changes">
+                    <span class="sym">{sym[change.change]}</span> {change.path}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {:else}
+          <p class="muted small">✓ All local changes are committed to the current Deploy.</p>
+        {/if}
+      </div>
     {/if}
 
     <form class="commit" onsubmit={commit}>
@@ -343,6 +428,24 @@
 
   .file.deleted {
     color: var(--danger, #f87171);
+  }
+
+  .uncommitted {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .uncommitted.dirty .u-title {
+    color: var(--warn, #fbbf24);
+  }
+
+  .u-title {
+    font-size: 12px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text);
+    margin-bottom: 0;
   }
 
   .commit {

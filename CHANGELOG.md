@@ -8,6 +8,12 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Uncommitted changes are called out in the Deploy tab.** The cloud-commit
+  panel now shows a separate **Uncommitted local changes** block — the edits
+  you've made since your last commit (distinct from the total "changes since
+  last deploy"). Click any file for a line-level diff of the last commit's
+  snapshot against your working copy, so you always know what still needs
+  committing before the next deploy.
 - **Deploy-history rows open their deploy.** Each row in a project's Deploy-tab
   **Deploy history** is now clickable — it opens the shared history focused on
   that deploy, where you can see its commits and click any changed file for a
