@@ -65,6 +65,7 @@
 {#if selected}
   <IssueThread
     issue={selected}
+    {projectId}
     onBack={() => (selectedId = null)}
     onChanged={load}
   />

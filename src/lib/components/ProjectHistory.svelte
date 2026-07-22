@@ -4,9 +4,11 @@
     getCommitManifest,
     listBundles,
     listCommits,
+    listIssues,
     type CloudCommit,
     type CloudProject,
     type DeployBundle,
+    type Issue,
   } from "../cloud";
   import { diffCounts, diffManifests } from "../diff";
   import type { Diff } from "../types";
@@ -27,6 +29,7 @@
 
   let bundles = $state<DeployBundle[]>([]);
   let commits = $state<CloudCommit[]>([]);
+  let issues = $state<Issue[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -44,9 +47,10 @@
     loading = true;
     error = null;
     try {
-      [bundles, commits] = await Promise.all([
+      [bundles, commits, issues] = await Promise.all([
         listBundles(project.id),
         listCommits(project.id),
+        listIssues(project.id).catch(() => [] as Issue[]),
       ]);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
@@ -125,6 +129,13 @@
 
   const asCommit = $derived(view === "commit" ? (selected as CloudCommit) : null);
   const asBundle = $derived(view === "deploy" ? (selected as DeployBundle) : null);
+
+  const deployIssues = $derived(
+    asBundle ? issues.filter((i) => i.bundle_id === asBundle.id) : [],
+  );
+  const commitIssues = $derived(
+    asCommit ? issues.filter((i) => i.commit_id === asCommit.id) : [],
+  );
 
   function actor(name: string | null): string {
     return name?.trim() || "someone";
@@ -211,6 +222,10 @@
       >
         {armed ? "Sure? Deploy this commit" : "Rollback to this commit"}
       </button>
+      {#if commitIssues.length > 0}
+        <h5>Fixes</h5>
+        {@render issueList(commitIssues)}
+      {/if}
       {@render diffBlock()}
     </div>
   {:else if view === "deploy" && asBundle}
@@ -235,11 +250,28 @@
         </div>
       {/if}
 
+      {#if deployIssues.length > 0}
+        <h5>Issues in this deploy</h5>
+        {@render issueList(deployIssues)}
+      {/if}
+
       <h5>Changes on the server</h5>
       {@render diffBlock()}
     </div>
   {/if}
 </div>
+
+{#snippet issueList(list: Issue[])}
+  <ul class="issues">
+    {#each list as i (i.id)}
+      <li>
+        <span class="i-dot {i.status}"></span>
+        <span class="i-num muted">#{i.number}</span>
+        <span class="i-title">{i.title}</span>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
 
 {#snippet diffBlock()}
   {#if detailLoading}
@@ -481,5 +513,46 @@
 
   .small {
     font-size: 12px;
+  }
+
+  .issues {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .issues li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .i-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .i-dot.open {
+    background: #34d399;
+  }
+
+  .i-dot.closed {
+    background: #a78bfa;
+  }
+
+  .i-num {
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+  }
+
+  .i-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

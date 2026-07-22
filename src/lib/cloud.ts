@@ -500,6 +500,10 @@ export interface Issue {
   created_by: string | null;
   author_name: string | null;
   comment_count: number;
+  /** The Deploy (bundle) this issue was filed against, if any. */
+  bundle_id: string | null;
+  /** The commit that resolved this issue, if pinned. */
+  commit_id: string | null;
 }
 
 export interface IssueComment {
@@ -518,31 +522,59 @@ function profileName(raw: unknown): string | null {
   return profile?.display_name?.trim() || profile?.username || null;
 }
 
+const ISSUE_COLUMNS =
+  "id, number, title, body, status, created_at, updated_at, closed_at, created_by, bundle_id, commit_id, profiles(display_name, username), issue_comments(count)";
+
+function issueFrom(row: Record<string, unknown>): Issue {
+  const counts = (row as { issue_comments?: { count: number }[] }).issue_comments;
+  return {
+    id: row.id as string,
+    number: row.number as number,
+    title: row.title as string,
+    body: row.body as string,
+    status: row.status as IssueStatus,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+    closed_at: (row.closed_at as string | null) ?? null,
+    created_by: (row.created_by as string | null) ?? null,
+    author_name: profileName((row as { profiles?: unknown }).profiles),
+    comment_count: counts?.[0]?.count ?? 0,
+    bundle_id: (row.bundle_id as string | null) ?? null,
+    commit_id: (row.commit_id as string | null) ?? null,
+  };
+}
+
 export async function listIssues(projectId: string): Promise<Issue[]> {
   const { data, error } = await supabase
     .from("issues")
-    .select(
-      "id, number, title, body, status, created_at, updated_at, closed_at, created_by, profiles(display_name, username), issue_comments(count)",
-    )
+    .select(ISSUE_COLUMNS)
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => {
-    const counts = (row as { issue_comments?: { count: number }[] }).issue_comments;
-    return {
-      id: row.id,
-      number: row.number,
-      title: row.title,
-      body: row.body,
-      status: row.status,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      closed_at: row.closed_at,
-      created_by: row.created_by,
-      author_name: profileName((row as { profiles?: unknown }).profiles),
-      comment_count: counts?.[0]?.count ?? 0,
-    };
+  return (data ?? []).map((row) => issueFrom(row as Record<string, unknown>));
+}
+
+/** Issues filed against (or fixed in) a specific Deploy bundle. */
+export async function listBundleIssues(bundleId: string): Promise<Issue[]> {
+  const { data, error } = await supabase
+    .from("issues")
+    .select(ISSUE_COLUMNS)
+    .eq("bundle_id", bundleId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => issueFrom(row as Record<string, unknown>));
+}
+
+/** Pin a resolved issue to the commit that fixed it (null to unpin). */
+export async function assignIssueCommit(
+  issueId: string,
+  commitId: string | null,
+): Promise<void> {
+  const { error } = await supabase.rpc("assign_issue_commit", {
+    p_issue: issueId,
+    p_commit: commitId,
   });
+  if (error) throw new Error(error.message);
 }
 
 export async function createIssue(

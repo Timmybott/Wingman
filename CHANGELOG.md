@@ -8,6 +8,12 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Issues connected to deploys and commits (M23).** A new issue is
+  automatically filed against the project's **current Deploy**, so a deploy's
+  page in History lists the issues raised in that cycle (open and fixed). On
+  an issue you can pin the **commit that fixed it** — a dropdown of that
+  Deploy's commits — and that commit's detail page then shows the issues it
+  resolved. Requires migration `0011`.
 - **History with Deploys & Commits, diffs, and storage rollback (M22).** The
   project's **History** now has two categories — **Deploys** (every released
   bundle) and **Commits** (every commit) — each opening a detail view. A

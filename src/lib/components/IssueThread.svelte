@@ -2,8 +2,13 @@
   import { onMount } from "svelte";
   import {
     addComment,
+    assignIssueCommit,
+    listBundles,
     listComments,
+    listCommits,
     setIssueStatus,
+    type CloudCommit,
+    type DeployBundle,
     type Issue,
     type IssueComment,
     type IssueStatus,
@@ -12,13 +17,60 @@
 
   let {
     issue,
+    projectId,
     onBack,
     onChanged,
   }: {
     issue: Issue;
+    projectId: string;
     onBack: () => void;
     onChanged: () => void;
   } = $props();
+
+  let bundle = $state<DeployBundle | null>(null);
+  let bundleCommits = $state<CloudCommit[]>([]);
+  // Local echo of the pinned commit for instant feedback after assigning.
+  // svelte-ignore state_referenced_locally
+  let commitId = $state<string | null>(issue.commit_id);
+  let assigning = $state(false);
+
+  const linkedCommit = $derived(bundleCommits.find((c) => c.id === commitId) ?? null);
+
+  async function loadLinks() {
+    if (!issue.bundle_id) return;
+    try {
+      const [bundles, commits] = await Promise.all([
+        listBundles(projectId),
+        listCommits(projectId, issue.bundle_id),
+      ]);
+      bundle = bundles.find((b) => b.id === issue.bundle_id) ?? null;
+      bundleCommits = commits;
+    } catch {
+      // linkage is a nicety — never block the thread
+    }
+  }
+
+  async function assign(event: Event) {
+    const value = (event.target as HTMLSelectElement).value || null;
+    assigning = true;
+    error = null;
+    try {
+      await assignIssueCommit(issue.id, value);
+      commitId = value;
+      onChanged();
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      assigning = false;
+    }
+  }
+
+  function deployLabel(b: DeployBundle): string {
+    if (b.status === "released") {
+      return `deployed ${b.released_at ? new Date(b.released_at).toLocaleDateString() : ""}`.trim();
+    }
+    return "not deployed yet";
+  }
 
   // Mounted fresh per issue (the list unmounts this on "back"), so seeding the
   // local status from the prop once is intended; toggleStatus keeps it in sync.
@@ -44,7 +96,10 @@
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    void loadLinks();
+  });
 
   async function toggleStatus() {
     const next: IssueStatus = status === "open" ? "closed" : "open";
@@ -99,6 +154,30 @@
   </div>
 
   {#if error}<p class="error">{error}</p>{/if}
+
+  {#if issue.bundle_id}
+    <div class="link-box">
+      <div class="link-row">
+        <span class="l-label muted">Deploy</span>
+        <span>Filed against the current Deploy{#if bundle} · <span class="muted">{deployLabel(bundle)}</span>{/if}</span>
+      </div>
+      <div class="link-row">
+        <span class="l-label muted">Fixed in</span>
+        {#if bundleCommits.length > 0}
+          <select value={commitId ?? ""} onchange={assign} disabled={assigning}>
+            <option value="">— not linked to a commit —</option>
+            {#each bundleCommits as c (c.id)}
+              <option value={c.id}>{c.message}</option>
+            {/each}
+          </select>
+        {:else if linkedCommit}
+          <span>{linkedCommit.message}</span>
+        {:else}
+          <span class="muted">no commits in this Deploy yet</span>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <article class="comment original">
     <div class="c-head">
@@ -188,6 +267,38 @@
   .status-closed {
     background: #8b5cf622;
     color: #a78bfa;
+  }
+
+  .link-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .link-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+
+  .l-label {
+    flex-shrink: 0;
+    width: 60px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .link-row select {
+    flex: 1;
+    min-width: 180px;
   }
 
   .comment {

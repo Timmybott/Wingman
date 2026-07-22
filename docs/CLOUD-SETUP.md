@@ -88,11 +88,16 @@ Then run [`supabase/0009_commits.sql`](../supabase/0009_commits.sql) in a
 only — the file snapshots live on the storage backend) and their RPCs, which
 power the reworked Deploy/commit/history flow. Also idempotent.
 
-Last, run [`supabase/0010_commit_manifests.sql`](../supabase/0010_commit_manifests.sql)
+Then run [`supabase/0010_commit_manifests.sql`](../supabase/0010_commit_manifests.sql)
 in a **new query**. It adds per-commit and per-deploy content manifests (so a
 "local vs server" diff needs no download), the `finalize_commit` /
 `server_manifest` functions, and the manifest-aware `release_bundle`. Also
 idempotent.
+
+Last, run [`supabase/0011_issue_links.sql`](../supabase/0011_issue_links.sql)
+in a **new query**. It links issues to deploys and commits: a new issue is
+filed against the current Deploy, and a resolved issue can be pinned to the
+commit that fixed it (`assign_issue_commit`). Also idempotent.
 
 ## 3b. Deploy the storage function (cloud commits)
 
