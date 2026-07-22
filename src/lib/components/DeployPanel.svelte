@@ -44,6 +44,7 @@
   let committing = $state(false);
   let showHistory = $state(false);
   let error = $state<string | null>(null);
+  let backupWarning = $state<string | null>(null);
   let deploys = $state<DeployEntry[]>([]);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
@@ -98,8 +99,14 @@
   }
 
   function handleStep(s: DeployStep) {
-    // Log-style events don't change the tile state.
-    if (s.step === "build_output" || s.step === "backup_skipped") return;
+    // Build output is log-style; ignore it here.
+    if (s.step === "build_output") return;
+    // A skipped backup isn't fatal, but the user must see it — keep it visible
+    // through the rest of the deploy.
+    if (s.step === "backup_skipped") {
+      backupWarning = s.reason;
+      return;
+    }
     step = s;
     if (s.step === "done" || s.step === "failed") {
       void refreshStatus();
@@ -143,6 +150,7 @@
   async function deploy() {
     if (!config) return;
     error = null;
+    backupWarning = null;
     currentKind = "deploy";
     step = { step: "committing" };
     try {
@@ -187,6 +195,7 @@
     if (!config) return;
     showHistory = false;
     error = null;
+    backupWarning = null;
     currentKind = "rollback";
     step = { step: "checking_out" };
     rollbackProject(config, commitId).catch((e) => {
@@ -248,6 +257,9 @@
       {/if}
 
       {#if error}<p class="error">{error}</p>{/if}
+      {#if backupWarning}
+        <p class="warn" title={backupWarning}>⚠ No backup was made — {backupWarning}</p>
+      {/if}
 
       <form class="commit" onsubmit={commit}>
         {#if gitStatus?.dirty}

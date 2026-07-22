@@ -13,6 +13,17 @@ All notable changes to Feather are documented here. The format follows
   user-agent, gradient id and internal comments no longer reference the old
   name. Deploy backups were already named `feather-pre-deploy-*`.
 
+### Fixed
+
+- **Pre-deploy backups now surface when they can't be taken.** The engine
+  already polls each `feather-pre-deploy-*` backup to completion and only
+  proceeds once the panel reports success, but a skipped backup (the server
+  has no backup slots, or every slot is occupied by a backup Feather didn't
+  create and so won't rotate) was silently swallowed by the UI. The Deploy
+  tab now shows a persistent amber warning for the rest of the run, and the
+  desktop sends a "No backup taken" notification, so "Back up the server
+  before each deploy" can never fail quietly.
+
 ## [2.2.0] — 2026-07-22
 
 Reworked the app around a clearer split: **Panels** for live server operation,

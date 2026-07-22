@@ -431,6 +431,16 @@ fn forward_engine_events(
                         .body(message.clone())
                         .show();
                 }
+                DeployStep::BackupSkipped { reason } => {
+                    // A missing backup is not fatal, but the user must know it
+                    // was NOT taken (e.g. all backup slots are foreign).
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title(format!("No backup taken — {}", project.name))
+                        .body(reason.clone())
+                        .show();
+                }
                 _ => {}
             }
             let _ = app.emit(&event_name, &step);
