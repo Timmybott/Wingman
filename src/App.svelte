@@ -1,57 +1,57 @@
 <script lang="ts">
-  import { relaunch } from "@tauri-apps/plugin-process";
-  import { check, type Update } from "@tauri-apps/plugin-updater";
   import { onMount } from "svelte";
-  import { getPanel } from "./lib/api";
-  import type { PanelConfig } from "./lib/types";
-  import Dashboard from "./lib/components/Dashboard.svelte";
-  import Footer from "./lib/components/Footer.svelte";
-  import Header from "./lib/components/Header.svelte";
-  import SetupScreen from "./lib/components/SetupScreen.svelte";
-  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
+  import { auth, initAuth, signOut } from "./lib/auth.svelte";
+  import { listTeams } from "./lib/cloud";
+  import { clearActiveTeam, setActiveTeam, teamState } from "./lib/team.svelte";
+  import AppShell from "./lib/components/AppShell.svelte";
+  import AuthScreen from "./lib/components/AuthScreen.svelte";
+  import TeamSetup from "./lib/components/TeamSetup.svelte";
 
-  let panel = $state<PanelConfig | null>(null);
-  let loading = $state(true);
-  let update = $state<Update | null>(null);
+  let resolving = $state(false);
 
-  onMount(async () => {
-    try {
-      panel = await getPanel();
-    } catch (error) {
-      console.error("failed to load panel config:", error);
-    } finally {
-      loading = false;
-    }
-    // Update check is best effort: in dev builds or before the updater
-    // keypair is configured this simply fails silently.
-    try {
-      update = await check();
-    } catch {
-      update = null;
+  onMount(() => {
+    void initAuth();
+  });
+
+  // On restart only the team id is persisted. Resolve its name and, at the
+  // same time, validate the membership is still valid — a stale id (team
+  // deleted, or removed from it) sends the user back to the team picker.
+  $effect(() => {
+    const id = teamState.activeTeamId;
+    if (auth.user && id && teamState.activeTeamName === null && !resolving) {
+      resolving = true;
+      listTeams()
+        .then((teams) => {
+          const team = teams.find((t) => t.id === id);
+          // Stale id (team deleted / removed) or unreachable → back to picker.
+          if (team) setActiveTeam(team);
+          else clearActiveTeam();
+        })
+        .catch(() => clearActiveTeam())
+        .finally(() => (resolving = false));
     }
   });
 
-  async function installUpdate() {
-    if (!update) return;
-    await update.downloadAndInstall();
-    await relaunch();
+  async function logout() {
+    clearActiveTeam();
+    await signOut();
   }
 </script>
 
-<div class="shell">
-  <Header {panel} onDisconnect={() => (panel = null)} />
-  <main>
-    {#if loading}
-      <p class="muted center">Loading…</p>
-    {:else if panel}
-      <Dashboard {panel} />
-    {:else}
-      <SetupScreen onConnected={(connected) => (panel = connected)} />
-    {/if}
-  </main>
-  <Footer />
-</div>
-
-{#if update}
-  <UpdateDialog {update} onInstall={installUpdate} onLater={() => (update = null)} />
+{#if auth.loading}
+  <p class="muted center">Loading…</p>
+{:else if !auth.user}
+  <AuthScreen />
+{:else if teamState.activeTeamId && teamState.activeTeamName === null}
+  <!-- Restoring the persisted team (resolving its name / membership). -->
+  <p class="muted center">Loading…</p>
+{:else if !teamState.activeTeamId}
+  <TeamSetup onReady={() => {}} />
+{:else}
+  <AppShell
+    userEmail={auth.user.email ?? ""}
+    teamName={teamState.activeTeamName ?? ""}
+    onSwitchTeam={clearActiveTeam}
+    onLogout={logout}
+  />
 {/if}

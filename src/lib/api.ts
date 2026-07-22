@@ -7,7 +7,6 @@ import type {
   DeployStatus,
   DeployStep,
   FileEntry,
-  PanelConfig,
   PowerSignal,
   ProjectConfig,
   RemoteDeployInfo,
@@ -17,25 +16,22 @@ import type {
   ServerStats,
 } from "./types";
 
-export function getPanel(): Promise<PanelConfig | null> {
-  return invoke<PanelConfig | null>("get_panel");
-}
-
 /** Dry-run credentials check; resolves to the number of visible servers. */
 export function testConnection(baseUrl: string, apiKey: string): Promise<number> {
   return invoke<number>("test_connection", { baseUrl, apiKey });
 }
 
-export function savePanel(
-  name: string,
-  baseUrl: string,
-  apiKey: string,
-): Promise<PanelConfig> {
-  return invoke<PanelConfig>("save_panel", { name, baseUrl, apiKey });
+/**
+ * Connect a team panel for this session. The decrypted key (fetched from the
+ * cloud via panelApiKey) is held in memory by the Rust core, never on disk.
+ */
+export function setActivePanel(baseUrl: string, apiKey: string): Promise<void> {
+  return invoke<void>("set_active_panel", { baseUrl, apiKey });
 }
 
-export function removePanel(): Promise<void> {
-  return invoke<void>("remove_panel");
+/** Disconnect the active panel and tear down its live sockets. */
+export function clearActivePanel(): Promise<void> {
+  return invoke<void>("clear_active_panel");
 }
 
 export function listServers(): Promise<Server[]> {

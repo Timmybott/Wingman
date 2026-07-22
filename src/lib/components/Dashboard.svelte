@@ -9,6 +9,7 @@
     listServers,
     onDeployEvent,
     onServerEvent,
+    projectHistory,
     pullProject,
     rollbackProject,
     sendConsoleCommand,
@@ -18,6 +19,12 @@
     unsubscribeServer,
   } from "../api";
   import { appStatus } from "../appStatus.svelte";
+  import {
+    findOrCreateProjectForServer,
+    recordDeploy,
+    type DeployKind,
+  } from "../cloud";
+  import { teamState } from "../team.svelte";
   import type {
     DeployStep,
     LiveState,
@@ -54,6 +61,10 @@
   let cancelled = false;
   const serverUnlisteners: UnlistenFn[] = [];
   const deployUnlisteners = new Map<string, UnlistenFn>();
+  // Tracks whether an in-flight engine run is a deploy or a rollback, so its
+  // completion can be recorded to the cloud history. Pull import/sync runs are
+  // deliberately not tracked (not recorded).
+  const deployKinds = new Map<string, DeployKind>();
 
   const openServer = $derived(
     servers.find((server) => server.identifier === openConsole) ?? null,
@@ -113,6 +124,64 @@
         break;
     }
     deploys[project.id] = step;
+
+    // Record finished deploys/rollbacks to the shared cloud history.
+    if (step.step === "done" || step.step === "failed") {
+      const kind = deployKinds.get(project.id);
+      if (kind) {
+        deployKinds.delete(project.id);
+        void recordDeployOutcome(project, kind, step);
+      }
+    }
+  }
+
+  /** Best-effort: write a deploy/rollback outcome to the project's cloud history. */
+  async function recordDeployOutcome(
+    project: ProjectConfig,
+    kind: DeployKind,
+    step: DeployStep,
+  ) {
+    const teamId = teamState.activeTeamId;
+    if (!teamId) return;
+    try {
+      const cloudProject = await findOrCreateProjectForServer(
+        teamId,
+        project.panel_id,
+        project.server_identifier,
+        project.name,
+      );
+      if (step.step === "done") {
+        let commit: string | null = null;
+        let commitSummary: string | null = null;
+        try {
+          const [head] = await projectHistory(project.id, 1);
+          if (head) {
+            commit = head.short_id;
+            commitSummary = head.summary;
+          }
+        } catch {
+          // History is a nicety; record the deploy regardless.
+        }
+        await recordDeploy({
+          projectId: cloudProject.id,
+          kind,
+          status: "success",
+          commit,
+          commitSummary,
+          files: step.files,
+        });
+      } else if (step.step === "failed") {
+        await recordDeploy({
+          projectId: cloudProject.id,
+          kind,
+          status: "failed",
+          message: step.message,
+        });
+      }
+    } catch (e) {
+      // Never let history recording disrupt the deploy flow.
+      console.error("failed to record deploy history:", e);
+    }
   }
 
   /** Feed the footer's "N commits since last deploy". */
@@ -210,10 +279,14 @@
 
   async function deploy(project: ProjectConfig) {
     deploys[project.id] = { step: "committing" };
+    deployKinds.set(project.id, "deploy");
     try {
       await deployProject(project.id);
     } catch (e) {
-      deploys[project.id] = { step: "failed", message: String(e) };
+      const step: DeployStep = { step: "failed", message: String(e) };
+      deploys[project.id] = step;
+      deployKinds.delete(project.id);
+      void recordDeployOutcome(project, "deploy", step);
     }
   }
 
@@ -266,10 +339,14 @@
 
   async function rollback(project: ProjectConfig, commitId: string) {
     deploys[project.id] = { step: "checking_out" };
+    deployKinds.set(project.id, "rollback");
     try {
       await rollbackProject(project.id, commitId);
     } catch (e) {
-      deploys[project.id] = { step: "failed", message: String(e) };
+      const step: DeployStep = { step: "failed", message: String(e) };
+      deploys[project.id] = step;
+      deployKinds.delete(project.id);
+      void recordDeployOutcome(project, "rollback", step);
     }
   }
 
