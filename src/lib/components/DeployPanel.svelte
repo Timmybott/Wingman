@@ -56,6 +56,9 @@
 
   let step = $state<DeployStep | null>(null);
   let showHistory = $state(false);
+  // When the history drawer is opened from a Deploy-history row, the row's
+  // timestamp so the drawer can jump straight to that deploy.
+  let focusDeployAt = $state<string | null>(null);
   let error = $state<string | null>(null);
   let backupWarning = $state<string | null>(null);
   let deploys = $state<DeployEntry[]>([]);
@@ -247,6 +250,12 @@
     }
   }
 
+  /** Open the shared history drawer focused on the clicked deploy. */
+  function openDeployDetail(d: DeployEntry) {
+    focusDeployAt = d.created_at;
+    showHistory = true;
+  }
+
   function when(iso: string): string {
     return new Date(iso).toLocaleString(undefined, {
       month: "short",
@@ -313,27 +322,38 @@
     <ul class="timeline">
       {#each deploys as d (d.id)}
         <li>
-          <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
-          <div class="d-main">
-            <span class="d-title">
-              <span class="d-kind">{d.kind}</span>
-              {#if d.commit_summary}<span class="d-summary">{d.commit_summary}</span>
-              {:else if d.status === "failed" && d.message}<span class="d-summary fail">{d.message}</span>{/if}
-            </span>
-            <span class="d-meta muted">
-              {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
-              {#if d.files_count !== null}{d.files_count} files · {/if}
-              {d.display_name?.trim() || d.username || "someone"} · {when(d.created_at)}
-            </span>
-          </div>
+          <button class="d-row" onclick={() => openDeployDetail(d)} title="Open this deploy's history">
+            <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
+            <div class="d-main">
+              <span class="d-title">
+                <span class="d-kind">{d.kind}</span>
+                {#if d.commit_summary}<span class="d-summary">{d.commit_summary}</span>
+                {:else if d.status === "failed" && d.message}<span class="d-summary fail">{d.message}</span>{/if}
+              </span>
+              <span class="d-meta muted">
+                {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
+                {#if d.files_count !== null}{d.files_count} files · {/if}
+                {d.display_name?.trim() || d.username || "someone"} · {when(d.created_at)}
+              </span>
+            </div>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
         </li>
       {/each}
     </ul>
   {/if}
 </div>
 
-{#if showHistory && config}
-  <ProjectHistory {project} {onRollback} onClose={() => (showHistory = false)} />
+{#if showHistory}
+  <ProjectHistory
+    {project}
+    {onRollback}
+    {focusDeployAt}
+    onClose={() => {
+      showHistory = false;
+      focusDeployAt = null;
+    }}
+  />
 {/if}
 
 <style>
@@ -405,14 +425,31 @@
     gap: 8px;
   }
 
-  .timeline li {
+  .d-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
+    width: 100%;
+    text-align: left;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
+  }
+
+  .d-row:hover {
+    border-color: var(--accent);
+  }
+
+  .chev {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 18px;
+    color: var(--text-muted);
+  }
+
+  .d-row:hover .chev {
+    color: var(--accent);
   }
 
   .badge {

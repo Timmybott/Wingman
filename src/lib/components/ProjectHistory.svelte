@@ -22,11 +22,16 @@
     project,
     onRollback,
     onClose,
+    focusDeployAt = null,
   }: {
     project: CloudProject;
     onRollback: (commitId: string) => void;
     onClose: () => void;
+    /** ISO timestamp of a deploy to open directly (matched to its bundle). */
+    focusDeployAt?: string | null;
   } = $props();
+
+  let focusConsumed = $state(false);
 
   type View = "list" | "commit" | "deploy";
   let view = $state<View>("list");
@@ -102,6 +107,28 @@
   $effect(() => {
     void project.id;
     void load();
+  });
+
+  // When opened from a Deploy-history row, jump straight to that deploy. The
+  // audit entry and the released bundle are written at almost the same moment,
+  // so match on the closest release time (within a few minutes).
+  $effect(() => {
+    if (focusConsumed || loading || focusDeployAt === null || bundles.length === 0) return;
+    focusConsumed = true;
+    const target = new Date(focusDeployAt).getTime();
+    let best: DeployBundle | null = null;
+    let bestDelta = Infinity;
+    for (const b of released) {
+      const delta = Math.abs(new Date(b.released_at ?? b.created_at).getTime() - target);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = b;
+      }
+    }
+    if (best && bestDelta < 5 * 60 * 1000) {
+      tab = "deploys";
+      void openDeploy(best);
+    }
   });
 
   async function openCommit(commit: CloudCommit) {

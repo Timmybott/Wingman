@@ -8,6 +8,10 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Deploy-history rows open their deploy.** Each row in a project's Deploy-tab
+  **Deploy history** is now clickable — it opens the shared history focused on
+  that deploy, where you can see its commits and click any changed file for a
+  line-level diff.
 - **Profiles & team pages cross-link.** A user's profile now lists the **teams**
   and **projects** they're part of, each clickable. A team page lists all its
   **members** (click through to their profile) and the team's **projects**.
@@ -45,6 +49,11 @@ All notable changes to Feather are documented here. The format follows
   issues, deploys, last deploy, current commit) and the Recent-activity list
   loaded only once and went stale — showing 0 / "No deploys yet" after a
   deploy. They now reload every time the Overview is opened.
+- **Closed issues can be linked to the commit that fixed them.** The "Fixed in"
+  picker on an issue previously appeared only for issues filed against a Deploy
+  and listed only that one Deploy's commits — so an issue whose fix landed in a
+  later cycle (the usual case once it's closed) could never be linked. It now
+  lists **every commit in the project**, grouped by deploy, for any issue.
 
 ## [2.3.0] — 2026-07-22
 
