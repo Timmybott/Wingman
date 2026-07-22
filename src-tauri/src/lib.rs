@@ -2,15 +2,18 @@
 //! IPC commands the Svelte frontend calls.
 
 mod commands;
-mod secrets;
 
-use commands::SocketHandle;
+use commands::{ActivePanel, SocketHandle};
 use std::collections::HashMap;
 use tauri::Manager;
 use wingman_core::ConfigStore;
 
 pub struct AppState {
     store: ConfigStore,
+    /// The panel connected for this session. Credentials come from the cloud
+    /// (decrypted per team member) and are held in memory only — never on
+    /// local disk. `None` until the frontend activates a panel.
+    active_panel: std::sync::Mutex<Option<ActivePanel>>,
     /// One live websocket per subscribed server, keyed by identifier.
     sockets: tokio::sync::Mutex<HashMap<String, SocketHandle>>,
     /// Project ids with a deploy in flight — guards against double deploys.
@@ -28,16 +31,16 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(AppState {
                 store: ConfigStore::new(dir),
+                active_panel: std::sync::Mutex::new(None),
                 sockets: tokio::sync::Mutex::new(HashMap::new()),
                 deploys: tokio::sync::Mutex::new(std::collections::HashSet::new()),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::get_panel,
             commands::test_connection,
-            commands::save_panel,
-            commands::remove_panel,
+            commands::set_active_panel,
+            commands::clear_active_panel,
             commands::list_servers,
             commands::server_resources,
             commands::set_power,

@@ -41,6 +41,12 @@ In **SQL Editor → New query**, paste the entire contents of
 It creates the profiles, teams, panels and projects tables with all the
 security rules. You should see "Success. No rows returned".
 
+Then open a **new query**, paste the entire contents of
+[`supabase/0002_team_create_rpc.sql`](../supabase/0002_team_create_rpc.sql) and
+run it too. This adds the reliable team-creation function (and repairs the team
+INSERT rule). It is safe to re-run. Without it, creating a team fails with
+*"new row violates row-level security policy for table teams"*.
+
 ## 4. Turn on email login
 
 1. Go to **Authentication → Providers → Email** and make sure it's enabled.

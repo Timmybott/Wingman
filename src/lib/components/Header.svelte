@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { removePanel } from "../api";
   import type { PanelConfig } from "../types";
   import Logo from "./Logo.svelte";
 
@@ -19,20 +18,7 @@
     onLogout: () => void;
   } = $props();
 
-  let busy = $state(false);
   let menuOpen = $state(false);
-
-  async function disconnect() {
-    busy = true;
-    try {
-      await removePanel();
-      onDisconnect();
-    } catch (error) {
-      console.error("failed to disconnect:", error);
-    } finally {
-      busy = false;
-    }
-  }
 </script>
 
 <header>
@@ -46,7 +32,7 @@
       {#if panel}
         <span class="dot online"></span>
         <span class="muted" title={panel.base_url}>{panel.name}</span>
-        <button class="ghost" onclick={disconnect} disabled={busy}>Disconnect</button>
+        <button class="ghost" onclick={onDisconnect}>Disconnect</button>
       {:else}
         <span class="dot unknown"></span>
         <span class="muted">Not connected</span>

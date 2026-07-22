@@ -1,7 +1,6 @@
 //! IPC commands exposed to the frontend. Errors cross the IPC boundary as
 //! strings, so every command maps core errors with `to_string()`.
 
-use crate::secrets;
 use crate::AppState;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
@@ -12,8 +11,8 @@ use wingman_core::models::{FileEntry, PowerSignal, Server, ServerStats};
 use wingman_core::sync::{is_newer, read_remote_state, start_pull, PullMode};
 use wingman_core::ws::Outgoing;
 use wingman_core::{
-    normalize_base_url, CommitInfo, DeployHandle, PanelClient, PanelConfig, PostDeployAction,
-    ProjectConfig, RepoStatus, ServerSocket,
+    normalize_base_url, CommitInfo, DeployHandle, PanelClient, PostDeployAction, ProjectConfig,
+    RepoStatus, ServerSocket,
 };
 
 type CmdResult<T> = Result<T, String>;
@@ -25,25 +24,24 @@ pub struct SocketHandle {
     forwarder: tauri::async_runtime::JoinHandle<()>,
 }
 
-fn client_for(state: &AppState) -> CmdResult<PanelClient> {
-    let panels = state.store.load_panels().map_err(|e| e.to_string())?;
-    let panel = panels
-        .into_iter()
-        .next()
-        .ok_or_else(|| "no panel configured".to_string())?;
-    let api_key = secrets::get_api_key(state.store.dir(), &panel.id)?;
-    PanelClient::new(&panel.base_url, &api_key).map_err(|e| e.to_string())
+/// The Pterodactyl panel the session is currently talking to. Its credentials
+/// live encrypted in the cloud (Supabase) and are decrypted per team member;
+/// this device holds them in memory only while a panel is connected — the API
+/// key is never written to local disk.
+#[derive(Clone)]
+pub struct ActivePanel {
+    pub base_url: String,
+    pub api_key: String,
 }
 
-/// The configured panel, if any (v1 supports exactly one).
-#[tauri::command]
-pub fn get_panel(state: State<'_, AppState>) -> CmdResult<Option<PanelConfig>> {
-    Ok(state
-        .store
-        .load_panels()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .next())
+fn client_for(state: &AppState) -> CmdResult<PanelClient> {
+    let panel = state
+        .active_panel
+        .lock()
+        .expect("active_panel mutex poisoned")
+        .clone()
+        .ok_or_else(|| "no panel connected".to_string())?;
+    PanelClient::new(&panel.base_url, &panel.api_key).map_err(|e| e.to_string())
 }
 
 /// Dry-run credentials check; returns the number of visible servers.
@@ -54,42 +52,38 @@ pub async fn test_connection(base_url: String, api_key: String) -> CmdResult<usi
     Ok(servers.len())
 }
 
-/// Verify the credentials, then persist: URL in the config file, API key in
-/// the OS keychain.
+/// Connect a team panel for this session by loading its decrypted credentials
+/// into memory. The frontend fetches the key from the cloud (panel_api_key
+/// RPC, team-members only) and hands it here; it is never persisted locally.
+/// Switching panels first tears down any sockets bound to the previous one.
 #[tauri::command]
-pub async fn save_panel(
+pub async fn set_active_panel(
     state: State<'_, AppState>,
-    name: String,
     base_url: String,
     api_key: String,
-) -> CmdResult<PanelConfig> {
+) -> CmdResult<()> {
+    close_all_sockets(&state).await;
     let url = normalize_base_url(&base_url).map_err(|e| e.to_string())?;
-    let client = PanelClient::new(url.as_str(), &api_key).map_err(|e| e.to_string())?;
-    client.list_servers().await.map_err(|e| e.to_string())?;
-
-    let display_name = match name.trim() {
-        "" => url.host_str().unwrap_or("Panel").to_string(),
-        trimmed => trimmed.to_string(),
-    };
-    let panel = PanelConfig::new(display_name, url.to_string());
-    secrets::set_api_key(state.store.dir(), &panel.id, api_key.trim())?;
-    state
-        .store
-        .save_panels(std::slice::from_ref(&panel))
-        .map_err(|e| e.to_string())?;
-    Ok(panel)
+    *state
+        .active_panel
+        .lock()
+        .expect("active_panel mutex poisoned") = Some(ActivePanel {
+        base_url: url.to_string(),
+        api_key: api_key.trim().to_string(),
+    });
+    Ok(())
 }
 
-/// Remove the panel connection, its keychain entry and all live sockets.
+/// Disconnect the active panel and close all its live sockets. The in-memory
+/// credentials are dropped; the cloud copy is untouched.
 #[tauri::command]
-pub async fn remove_panel(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn clear_active_panel(state: State<'_, AppState>) -> CmdResult<()> {
     close_all_sockets(&state).await;
-    let panels = state.store.load_panels().map_err(|e| e.to_string())?;
-    for panel in &panels {
-        // Best effort: a missing keychain entry must not block disconnecting.
-        let _ = secrets::delete_api_key(state.store.dir(), &panel.id);
-    }
-    state.store.save_panels(&[]).map_err(|e| e.to_string())
+    *state
+        .active_panel
+        .lock()
+        .expect("active_panel mutex poisoned") = None;
+    Ok(())
 }
 
 #[tauri::command]

@@ -4,6 +4,38 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Cloud collaboration — Feather is growing from a local-only app into a
+team platform backed by a free Supabase project. The deploy engine still
+runs locally on each machine; the cloud holds the shared data.
+
+### Added
+
+- **Accounts & teams** — sign in with an email account and work inside a
+  team. A team is the unit of collaboration: its panels, projects, history
+  and issues are shared by everyone on it. Row-Level Security means you only
+  ever see the teams you belong to.
+- **Shared, encrypted panels** — Pterodactyl connections now live in the
+  team, not on one machine. Multiple panels are supported, and every
+  teammate can connect and deploy without re-entering keys. API keys are
+  encrypted at rest with a key kept in Supabase Vault and are only ever
+  decrypted for team members. On this device the decrypted key is held in
+  memory for the session only — never written to local disk.
+- New **Panels** screen to add, connect to and remove team panels.
+
+### Changed
+
+- The single local panel config (OS keychain / `credentials.json`) is
+  replaced by the shared cloud panels above; the local keychain dependency
+  was removed.
+
+### Fixed
+
+- Team creation now goes through a `SECURITY DEFINER` function
+  (`supabase/0002_team_create_rpc.sql`), fixing a row-level-security error
+  that could block creating a team.
+
 ## [2.0.0] — 2026-07-19
 
 ### Changed
