@@ -712,11 +712,21 @@ export async function releaseBundle(
   return bundleFrom(data);
 }
 
-/** The current server-state manifest (newest released bundle's deployed set). */
+/** The current server-state manifest (the project baseline). */
 export async function serverManifest(projectId: string): Promise<Manifest> {
   const { data, error } = await supabase.rpc("server_manifest", { p_project: projectId });
   if (error) throw new Error(error.message);
   return (data ?? {}) as Manifest;
+}
+
+/** Set the project's server-state baseline (called after importing the server's
+ *  files, so the "changes since last deploy" diff is correct immediately). */
+export async function setServerManifest(projectId: string, manifest: Manifest): Promise<void> {
+  const { error } = await supabase.rpc("set_server_manifest", {
+    p_project: projectId,
+    p_manifest: manifest,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** A commit's stored content manifest ({} if it wasn't recorded). */

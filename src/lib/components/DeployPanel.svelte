@@ -16,6 +16,7 @@
     recordDeploy,
     releaseBundle,
     sessionToken,
+    setServerManifest,
     STORAGE_ENDPOINT,
     type CloudProject,
     type DeployEntry,
@@ -63,6 +64,9 @@
   let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
+  // An import is running; on completion the local folder mirrors the server, so
+  // we record it as the diff baseline.
+  let pullPending = false;
 
   const running = $derived(step !== null && step.step !== "done" && step.step !== "failed");
 
@@ -122,6 +126,23 @@
       const kind = currentKind;
       currentKind = null;
       if (kind) void record(kind, s);
+      // After importing the server's files, the local folder mirrors the
+      // server — record that as the diff baseline so the Deploy tab doesn't
+      // show every file as changed.
+      if (s.step === "done" && pullPending) void setImportBaseline();
+      pullPending = false;
+    }
+  }
+
+  /** After a successful import, the local manifest == the server state. */
+  async function setImportBaseline() {
+    if (!config) return;
+    try {
+      const manifest = await projectManifest(config);
+      await setServerManifest(project.id, manifest);
+      cloudRefresh += 1;
+    } catch (e) {
+      console.error("could not set server baseline:", e);
     }
   }
 
@@ -198,11 +219,13 @@
     if (!config) return;
     error = null;
     currentKind = null; // imports are not recorded as deploys
+    pullPending = true; // …but they do reset the diff baseline
     step = { step: "downloading", percent: 0 };
     try {
       await pullProject(config, "import");
     } catch (e) {
       step = { step: "failed", message: String(e) };
+      pullPending = false;
     }
   }
 
