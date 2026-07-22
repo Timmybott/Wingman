@@ -6,27 +6,81 @@ import { supabase } from "./supabase";
 export interface Team {
   id: string;
   name: string;
+  owner_id: string | null;
+  location: string | null;
+  website: string | null;
+  logo_url: string | null;
+  description: string | null;
   created_at: string;
+}
+
+const TEAM_COLUMNS = "id, name, owner_id, location, website, logo_url, description, created_at";
+
+/** Optional profile fields set when creating a team or editing it later. */
+export interface TeamProfileInput {
+  location?: string | null;
+  website?: string | null;
+  logo_url?: string | null;
+  description?: string | null;
 }
 
 export async function listTeams(): Promise<Team[]> {
   const { data, error } = await supabase
     .from("teams")
-    .select("id, name, created_at")
+    .select(TEAM_COLUMNS)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []) as Team[];
 }
 
-export async function createTeam(name: string): Promise<Team> {
-  // Inserts server-side via a SECURITY DEFINER function (supabase/0002),
+export async function getTeam(teamId: string): Promise<Team> {
+  const { data, error } = await supabase
+    .from("teams")
+    .select(TEAM_COLUMNS)
+    .eq("id", teamId)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Team;
+}
+
+export async function createTeam(name: string, profile: TeamProfileInput = {}): Promise<Team> {
+  // Inserts server-side via a SECURITY DEFINER function (supabase/0002, 0008),
   // which stamps owner_id from auth.uid() and is not subject to the teams
   // INSERT policy — the reliable way to create a team.
-  const { data, error } = await supabase.rpc("create_team", { p_name: name.trim() });
+  const { data, error } = await supabase.rpc("create_team", {
+    p_name: name.trim(),
+    p_location: profile.location ?? null,
+    p_website: profile.website ?? null,
+    p_logo_url: profile.logo_url ?? null,
+    p_description: profile.description ?? null,
+  });
   if (error) throw new Error(error.message);
   if (!data) throw new Error("team was not created");
-  const team = Array.isArray(data) ? data[0] : data;
-  return { id: team.id, name: team.name, created_at: team.created_at };
+  return (Array.isArray(data) ? data[0] : data) as Team;
+}
+
+/**
+ * Edit a team's profile. Only the owner may do this — the teams_update policy
+ * (supabase/0008) enforces it, so a non-owner call fails at the database.
+ */
+export async function updateTeam(
+  teamId: string,
+  fields: { name?: string } & TeamProfileInput,
+): Promise<Team> {
+  const patch: Record<string, string | null> = {};
+  if (fields.name !== undefined) patch.name = fields.name.trim();
+  if (fields.location !== undefined) patch.location = fields.location;
+  if (fields.website !== undefined) patch.website = fields.website;
+  if (fields.logo_url !== undefined) patch.logo_url = fields.logo_url;
+  if (fields.description !== undefined) patch.description = fields.description;
+  const { data, error } = await supabase
+    .from("teams")
+    .update(patch)
+    .eq("id", teamId)
+    .select(TEAM_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Team;
 }
 
 // --- Panels (Pterodactyl connections, shared in the team) ------------------
@@ -266,6 +320,71 @@ export async function removeMember(teamId: string, userId: string): Promise<void
     p_user: userId,
   });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Grant or revoke admin rights — owner only (enforced by set_member_role in
+ * supabase/0008). Pass "admin" to promote, "member" to demote.
+ */
+export async function setMemberRole(
+  teamId: string,
+  userId: string,
+  role: "admin" | "member",
+): Promise<void> {
+  const { error } = await supabase.rpc("set_member_role", {
+    p_team: teamId,
+    p_user: userId,
+    p_role: role,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// --- User profiles ---------------------------------------------------------
+
+export interface UserProfile {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  location: string | null;
+  website: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  created_at: string;
+}
+
+const PROFILE_COLUMNS =
+  "id, username, display_name, location, website, avatar_url, bio, created_at";
+
+/** Any user's public profile (profiles are readable by everyone). */
+export async function getProfile(userId: string): Promise<UserProfile> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select(PROFILE_COLUMNS)
+    .eq("id", userId)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as UserProfile;
+}
+
+/** Edit the signed-in user's own profile (profiles_update_own policy). */
+export async function updateMyProfile(fields: {
+  display_name?: string | null;
+  location?: string | null;
+  website?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+}): Promise<UserProfile> {
+  const { data: userData } = await supabase.auth.getUser();
+  const uid = userData.user?.id;
+  if (!uid) throw new Error("not signed in");
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(fields)
+    .eq("id", uid)
+    .select(PROFILE_COLUMNS)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as UserProfile;
 }
 
 // --- Deploy history --------------------------------------------------------

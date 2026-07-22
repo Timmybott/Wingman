@@ -18,6 +18,7 @@ Feather splits cleanly in two: **Panels** is where you run your servers (power, 
   - [Accounts & sign-in](#accounts--sign-in)
   - [Teams](#teams)
   - [Members](#members)
+  - [Profiles](#profiles)
   - [Panels (encrypted & shared)](#panels-encrypted--shared)
   - [The Panels tab — your servers](#the-panels-tab--your-servers)
   - [Projects — import a server](#projects--import-a-server)
@@ -154,11 +155,15 @@ Feather is account-based. Sign up with an email, display name and password; sign
 
 ### Teams
 
-A team is the unit of collaboration — its panels, projects, deploy history and issues are shared by everyone on it. You can belong to several teams and switch between them from the header (**Switch team**). Row-Level Security guarantees you only ever see teams you belong to. The team's creator is its **owner**.
+A team is the unit of collaboration — its panels, projects, deploy history and issues are shared by everyone on it. You can belong to several teams and switch between them from the header (**Switch team**). Row-Level Security guarantees you only ever see teams you belong to. The team's creator is its **owner**. When you create a team you can add optional details — location, website, a logo and a Markdown README.
 
 ### Members
 
-The **Members** tab lists everyone on the team with their name, handle and role (**owner** / **admin** / **member**). Owners and admins can **add a member** by email (they must already have a Feather account) and **remove a member** (the owner is protected). New members immediately share the team's panels, projects and history.
+The **Members** tab lists everyone on the team with their name, handle and role (**owner** / **admin** / **member**). Owners and admins can **add a member** by email (they must already have a Feather account) and **remove a member** (the owner is protected). Only the **owner** can grant admin rights (**Make admin** / **Remove admin**). Clicking a teammate opens their profile. New members immediately share the team's panels, projects and history.
+
+### Profiles
+
+Every account and every team has a **profile page** — a GitHub-style overview with a logo/avatar, location, website and a Markdown **README**. Reach them from the account menu (**Your profile**, **Team profile**) or by clicking a teammate in the Members list. You edit your own account profile; a team's page can be edited **only by its owner**.
 
 ### Panels (encrypted & shared)
 

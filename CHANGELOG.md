@@ -8,6 +8,17 @@ All notable changes to Feather are documented here. The format follows
 
 ### Added
 
+- **Profile pages for users and teams.** Every account and every team now has
+  a self-customizable, GitHub-style profile — a logo/avatar, location, website
+  and a Markdown README — reachable from the account menu ("Your profile",
+  "Team profile") and by clicking a teammate in the Members list. You edit your
+  own account profile; a **team's page is editable only by its owner**. Team
+  creation gained matching optional fields (location, website, logo, README).
+  Requires the new `supabase/0008_profiles.sql` migration.
+- **Owner-granted admin rights.** The team owner can promote a member to admin
+  ("Make admin") or demote them ("Remove admin") from the Members tab, backed
+  by an owner-only `set_member_role` function; direct role changes and team
+  edits are locked to the owner at the database level.
 - **A GitHub-style project Overview.** The Overview now opens with a stat row
   — open issues, total deploys, the last deploy (with a status dot and
   relative time) and the commit currently on the server — each tile jumping

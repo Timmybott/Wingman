@@ -1,0 +1,336 @@
+<script lang="ts">
+  import { auth } from "../auth.svelte";
+  import { getTeam, listMembers, updateTeam, type Team, type TeamMember } from "../cloud";
+  import Markdown from "./Markdown.svelte";
+
+  let {
+    teamId,
+    onBack,
+    onUpdated,
+  }: {
+    teamId: string;
+    onBack: () => void;
+    onUpdated?: (team: Team) => void;
+  } = $props();
+
+  let team = $state<Team | null>(null);
+  let members = $state<TeamMember[]>([]);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+
+  const isOwner = $derived(!!team && auth.user?.id === team.owner_id);
+
+  // Edit buffer.
+  let editing = $state(false);
+  let saving = $state(false);
+  let name = $state("");
+  let location = $state("");
+  let website = $state("");
+  let logoUrl = $state("");
+  let description = $state("");
+
+  $effect(() => {
+    const id = teamId;
+    loading = true;
+    error = null;
+    editing = false;
+    Promise.all([getTeam(id), listMembers(id).catch(() => [] as TeamMember[])])
+      .then(([t, m]) => {
+        team = t;
+        members = m;
+      })
+      .catch((e) => (error = String(e instanceof Error ? e.message : e)))
+      .finally(() => (loading = false));
+  });
+
+  const ownerName = $derived.by(() => {
+    const owner = members.find((m) => m.role === "owner");
+    return owner?.display_name?.trim() || owner?.username || null;
+  });
+
+  function startEdit() {
+    if (!team) return;
+    name = team.name;
+    location = team.location ?? "";
+    website = team.website ?? "";
+    logoUrl = team.logo_url ?? "";
+    description = team.description ?? "";
+    error = null;
+    editing = true;
+  }
+
+  async function save() {
+    if (name.trim() === "") return;
+    saving = true;
+    error = null;
+    try {
+      const updated = await updateTeam(teamId, {
+        name: name.trim(),
+        location: location.trim() || null,
+        website: website.trim() || null,
+        logo_url: logoUrl.trim() || null,
+        description: description.trim() || null,
+      });
+      team = updated;
+      editing = false;
+      onUpdated?.(updated);
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      saving = false;
+    }
+  }
+
+  function created(iso: string): string {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long" });
+  }
+
+  function href(url: string): string | null {
+    const t = url.trim();
+    if (t === "") return null;
+    const full = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+    try {
+      const u = new URL(full);
+      return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function hostOf(url: string): string {
+    try {
+      return new URL(href(url) ?? "").host;
+    } catch {
+      return url;
+    }
+  }
+</script>
+
+<div class="profile">
+  <button class="back ghost" onclick={onBack}>← Back</button>
+
+  {#if loading}
+    <p class="muted center">Loading team…</p>
+  {:else if error && !team}
+    <p class="error">{error}</p>
+  {:else if team}
+    {#if editing}
+      <div class="card edit">
+        <h2>Edit team</h2>
+        <div class="field">
+          <label for="t-name">Team name</label>
+          <input id="t-name" bind:value={name} autocomplete="off" />
+        </div>
+        <div class="two">
+          <div class="field">
+            <label for="t-loc">Location</label>
+            <input id="t-loc" bind:value={location} placeholder="e.g. Remote" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="t-web">Website</label>
+            <input id="t-web" bind:value={website} placeholder="example.com" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="t-logo">Logo image URL</label>
+          <input id="t-logo" bind:value={logoUrl} placeholder="https://…/logo.png" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="t-desc">README <span class="muted">(Markdown)</span></label>
+          <textarea id="t-desc" bind:value={description} rows="8" placeholder="What is this team about? # headings, **bold**, - lists, links…"></textarea>
+        </div>
+        {#if error}<p class="error">{error}</p>{/if}
+        <div class="row-actions end">
+          <button class="ghost" onclick={() => (editing = false)} disabled={saving}>Cancel</button>
+          <button class="primary" onclick={save} disabled={saving || name.trim() === ""}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <header class="head">
+        <div class="identity">
+          {#if team.logo_url}
+            <img class="logo-img" src={team.logo_url} alt={team.name} />
+          {:else}
+            <span class="logo">{team.name.charAt(0).toUpperCase()}</span>
+          {/if}
+          <div class="names">
+            <h1>{team.name}</h1>
+            <span class="muted sub">Team{#if ownerName} · owned by {ownerName}{/if}</span>
+          </div>
+        </div>
+        {#if isOwner}
+          <button class="ghost" onclick={startEdit}>Edit team</button>
+        {/if}
+      </header>
+
+      <div class="meta">
+        {#if team.location}<span class="meta-item">📍 {team.location}</span>{/if}
+        {#if team.website && href(team.website)}
+          <a class="meta-item link" href={href(team.website)} target="_blank" rel="noopener noreferrer">
+            🔗 {hostOf(team.website)}
+          </a>
+        {/if}
+        <span class="meta-item">👥 {members.length} {members.length === 1 ? "member" : "members"}</span>
+        <span class="meta-item muted">Created {created(team.created_at)}</span>
+      </div>
+
+      <div class="card readme">
+        <div class="card-head"><h2>README</h2></div>
+        {#if team.description && team.description.trim() !== ""}
+          <Markdown source={team.description} />
+        {:else}
+          <p class="muted">
+            {isOwner ? "Add a README so your team knows what this is about." : "No README yet."}
+          </p>
+        {/if}
+      </div>
+
+      {#if !isOwner}
+        <p class="hint muted">Only the team owner can edit this page.</p>
+      {/if}
+    {/if}
+  {/if}
+</div>
+
+<style>
+  .profile {
+    max-width: 760px;
+    margin: 22px auto 0;
+  }
+
+  .back {
+    margin-bottom: 14px;
+  }
+
+  .head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .logo,
+  .logo-img {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    display: grid;
+    place-items: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    font-weight: 700;
+    font-size: 30px;
+  }
+
+  .logo-img {
+    object-fit: cover;
+    border: 1px solid var(--border);
+  }
+
+  .names {
+    min-width: 0;
+  }
+
+  h1 {
+    font-size: 24px;
+    margin-bottom: 2px;
+  }
+
+  .sub {
+    font-size: 13px;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 22px;
+    font-size: 13px;
+  }
+
+  .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .link {
+    color: var(--accent);
+  }
+
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .card-head {
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    font-size: 14px;
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .edit h2 {
+    margin-bottom: 16px;
+    font-size: 16px;
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    font: inherit;
+  }
+
+  .row-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .row-actions.end {
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  .hint {
+    margin-top: 14px;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    .two {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

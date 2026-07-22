@@ -72,10 +72,16 @@ Then run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
 / `add_issue_comment` functions) that power each project's Issues tab. Also
 idempotent.
 
-Last, run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
+Then run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
 in a **new query**. It adds the tombstone table and `request_project_deletion`
 function used by "delete everywhere", so a deleted project is also removed from
 every teammate's machine. Also idempotent.
+
+Last, run [`supabase/0008_profiles.sql`](../supabase/0008_profiles.sql) in a
+**new query**. It adds the profile fields (location, website, logo/avatar and a
+Markdown README) to user accounts and teams, restricts team editing to the
+owner, and adds `set_member_role` so the owner can grant or revoke admin
+rights. Also idempotent.
 
 ## 4. Turn on email login
 
