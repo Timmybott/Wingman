@@ -194,6 +194,53 @@ pub fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<ProjectConfig>
     state.store.load_projects().map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Per-device local folder bindings for cloud projects
+// ---------------------------------------------------------------------------
+
+/// Bind a cloud project to a local folder on this device. Returns whether the
+/// folder is currently empty (so the caller can offer to import server files).
+#[tauri::command]
+pub fn set_project_path(
+    state: State<'_, AppState>,
+    project_id: String,
+    path: String,
+) -> CmdResult<bool> {
+    let dir = std::path::Path::new(&path);
+    if !dir.is_dir() {
+        return Err(format!("folder does not exist: {path}"));
+    }
+    let empty = std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false);
+    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    map.insert(project_id, path);
+    state
+        .store
+        .save_project_paths(&map)
+        .map_err(|e| e.to_string())?;
+    Ok(empty)
+}
+
+/// The local folder bound to a project on this device, if any.
+#[tauri::command]
+pub fn get_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<Option<String>> {
+    Ok(state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?
+        .get(&project_id)
+        .cloned())
+}
+
+/// Remove this device's local binding for a project (does not touch files).
+#[tauri::command]
+pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
+    let mut map = state.store.load_project_paths().map_err(|e| e.to_string())?;
+    map.remove(&project_id);
+    state.store.save_project_paths(&map).map_err(|e| e.to_string())
+}
+
 /// Create or update a project. An empty id means "new". One project per
 /// server in v1 — a second link to the same server is rejected. Linking
 /// also makes sure the folder is a git repository (spec: the app

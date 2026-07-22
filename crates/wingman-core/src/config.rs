@@ -4,6 +4,7 @@
 
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -109,6 +110,34 @@ impl ConfigStore {
 
     pub fn save_projects(&self, projects: &[ProjectConfig]) -> Result<(), Error> {
         self.save_list("projects.json", projects)
+    }
+
+    /// Per-device bindings from a cloud project id to the local folder it
+    /// deploys from. Projects live in the cloud; this local map records where
+    /// each one lives on *this* machine (each teammate can choose a different
+    /// folder, or none at all).
+    pub fn load_project_paths(&self) -> Result<HashMap<String, String>, Error> {
+        let path = self.dir.join("project_paths.json");
+        if !path.exists() {
+            return Ok(HashMap::new());
+        }
+        let bytes =
+            fs::read(&path).map_err(|e| Error::Config(format!("read project_paths.json: {e}")))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| Error::Config(format!("parse project_paths.json: {e}")))
+    }
+
+    pub fn save_project_paths(&self, map: &HashMap<String, String>) -> Result<(), Error> {
+        fs::create_dir_all(&self.dir)
+            .map_err(|e| Error::Config(format!("create config dir: {e}")))?;
+        let json = serde_json::to_vec_pretty(map)
+            .map_err(|e| Error::Config(format!("serialize project_paths.json: {e}")))?;
+        let tmp = self.dir.join("project_paths.json.tmp");
+        let path = self.dir.join("project_paths.json");
+        fs::write(&tmp, json).map_err(|e| Error::Config(format!("write project_paths.json: {e}")))?;
+        fs::rename(&tmp, &path)
+            .map_err(|e| Error::Config(format!("write project_paths.json: {e}")))?;
+        Ok(())
     }
 
     pub fn load_deploy_record(&self, project_id: &str) -> Result<Option<DeployRecord>, Error> {

@@ -90,6 +90,26 @@ export function listProjects(): Promise<ProjectConfig[]> {
   return invoke<ProjectConfig[]>("list_projects");
 }
 
+// --- Per-device local folder bindings for cloud projects -------------------
+
+/**
+ * Bind a cloud project to a local folder on this device. Resolves to whether
+ * the folder is currently empty (so the caller can offer to import).
+ */
+export function setProjectPath(projectId: string, path: string): Promise<boolean> {
+  return invoke<boolean>("set_project_path", { projectId, path });
+}
+
+/** The local folder bound to a project on this device, if any. */
+export function getProjectPath(projectId: string): Promise<string | null> {
+  return invoke<string | null>("get_project_path", { projectId });
+}
+
+/** Remove this device's local binding for a project (leaves files untouched). */
+export function removeProjectPath(projectId: string): Promise<void> {
+  return invoke<void>("remove_project_path", { projectId });
+}
+
 /** Create (empty id) or update a project. */
 export function saveProject(project: ProjectConfig): Promise<ProjectConfig> {
   return invoke<ProjectConfig>("save_project", { project });

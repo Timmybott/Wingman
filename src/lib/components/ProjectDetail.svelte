@@ -9,6 +9,8 @@
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { getProjectPath, removeProjectPath, setProjectPath } from "../api";
   import { toggleTaskInMarkdown } from "../markdown";
   import IssuesPanel from "./IssuesPanel.svelte";
   import Markdown from "./Markdown.svelte";
@@ -73,6 +75,45 @@
 
   let confirmingDelete = $state(false);
   let deleting = $state(false);
+
+  // Per-device local folder binding.
+  let localPath = $state<string | null>(null);
+  let pathBusy = $state(false);
+
+  $effect(() => {
+    const id = project.id;
+    getProjectPath(id)
+      .then((p) => (localPath = p))
+      .catch(() => (localPath = null));
+  });
+
+  async function chooseFolder() {
+    const picked = await open({ directory: true, title: "Choose the local project folder" });
+    if (typeof picked !== "string") return;
+    pathBusy = true;
+    error = null;
+    try {
+      await setProjectPath(project.id, picked);
+      localPath = picked;
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      pathBusy = false;
+    }
+  }
+
+  async function unlinkFolder() {
+    pathBusy = true;
+    error = null;
+    try {
+      await removeProjectPath(project.id);
+      localPath = null;
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      pathBusy = false;
+    }
+  }
 
   const panelName = $derived(panels.find((p) => p.id === project.panel_id)?.name ?? null);
   const creator = $derived(
@@ -234,6 +275,27 @@
             <Markdown source={project.description} onToggleTask={toggleTask} />
           {:else}
             <p class="muted">No description yet. Add goals, plans and notes so your team is on the same page.</p>
+          {/if}
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Local folder · this device</h2>
+          </div>
+          {#if localPath}
+            <p class="folder mono">{localPath}</p>
+            <div class="row-actions">
+              <button class="ghost small" onclick={chooseFolder} disabled={pathBusy}>Change…</button>
+              <button class="ghost small" onclick={unlinkFolder} disabled={pathBusy}>Unlink</button>
+            </div>
+          {:else}
+            <p class="muted">
+              Not set on this device. Link a folder to deploy this project from
+              here — each teammate picks their own (or none).
+            </p>
+            <div class="row-actions">
+              <button class="primary small" onclick={chooseFolder} disabled={pathBusy}>Choose folder…</button>
+            </div>
           {/if}
         </div>
       </div>
@@ -434,6 +496,19 @@
     grid-template-columns: 1fr 240px;
     gap: 22px;
     align-items: start;
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+
+  .folder {
+    word-break: break-all;
+    margin-bottom: 8px;
+    font-size: 13px;
   }
 
   .card {

@@ -16,6 +16,13 @@ Reworking the app around a clearer split: **Panels** for live server operation,
   core supports several panels connected simultaneously (server commands are
   scoped by panel). Deploy, git history and the file browser are moving off the
   server tiles and into the matching project (Projects tab).
+- **Projects now import a server.** Creating a project means picking a panel
+  (required) and one of its existing servers — its RAM/CPU/disk limits are
+  shown, and servers already imported are marked. A local folder is optional:
+  add one to deploy from this device, or leave it out to plan and manage
+  across servers without keeping files locally. The chosen folder is a
+  per-device binding, so each teammate can pick their own (or none). Server
+  creation/deletion isn't offered — Pterodactyl's client API can't do it.
 - The Linux app icon now resolves correctly: the bundle identifier was aligned
   with "Feather" so the desktop matches the window to its launcher/taskbar icon.
 
