@@ -4,10 +4,11 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.2.0] — 2026-07-22
 
 Reworked the app around a clearer split: **Panels** for live server operation,
-**Projects** for planning and deploying.
+**Projects** for planning and deploying. See the [README](README.md) for the
+full feature guide.
 
 ### Added
 

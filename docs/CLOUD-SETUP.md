@@ -1,10 +1,9 @@
 # Feather cloud setup (Supabase)
 
-Feather 2.1 adds accounts and team collaboration on top of the desktop app.
-Accounts, teams, saved Pterodactyl panels, projects, deploy history and issues
-live in a free [Supabase](https://supabase.com) project. The deploy engine
-still runs locally on each teammate's machine — Supabase only holds the shared
-data.
+Feather's team features (accounts, teams, members, encrypted shared panels,
+projects, deploy history and issues) run on a free
+[Supabase](https://supabase.com) project. The deploy engine still runs locally
+on each teammate's machine — Supabase only holds the shared data.
 
 You only need to do this once (one person per team), and it takes about five
 minutes. Afterwards, share the Project URL and anon key with your teammates so

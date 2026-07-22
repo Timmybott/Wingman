@@ -33,8 +33,8 @@ The auto-updater only installs updates signed with the project's key.
 4. Tag and push:
 
    ```sh
-   git tag v2.1.0
-   git push origin v2.1.0
+   git tag v2.2.0
+   git push origin v2.2.0
    ```
 
 4. The **Release** workflow builds:
