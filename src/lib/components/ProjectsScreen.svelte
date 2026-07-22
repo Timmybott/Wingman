@@ -11,7 +11,13 @@
   import NewProjectDialog from "./NewProjectDialog.svelte";
   import ProjectDetail from "./ProjectDetail.svelte";
 
-  let { teamId }: { teamId: string } = $props();
+  let {
+    teamId,
+    onOpenServer,
+  }: {
+    teamId: string;
+    onOpenServer: (panelId: string, identifier: string) => void;
+  } = $props();
 
   let projects = $state<CloudProject[]>([]);
   let panels = $state<CloudPanel[]>([]);
@@ -81,6 +87,7 @@
     onBack={() => (selectedId = null)}
     {onChanged}
     {onDeleted}
+    {onOpenServer}
   />
 {:else}
   <div class="projects">

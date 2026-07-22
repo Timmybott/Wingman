@@ -28,6 +28,7 @@
     onBack,
     onChanged,
     onDeleted,
+    onOpenServer,
   }: {
     project: CloudProject;
     panels: CloudPanel[];
@@ -35,7 +36,20 @@
     onBack: () => void;
     onChanged: (updated: CloudProject) => void;
     onDeleted: (id: string) => void;
+    onOpenServer: (panelId: string, identifier: string) => void;
   } = $props();
+
+  // Only offer the jump-to-Panels shortcut when the project actually imports a
+  // server (both the panel and the server identifier are set).
+  const linkedServer = $derived(
+    project.panel_id && project.server_identifier
+      ? { panelId: project.panel_id, identifier: project.server_identifier }
+      : null,
+  );
+
+  function openServer() {
+    if (linkedServer) onOpenServer(linkedServer.panelId, linkedServer.identifier);
+  }
 
   type Tab = "overview" | "issues" | "deploy" | "files" | "settings";
   let tab = $state<Tab>("overview");
@@ -232,6 +246,11 @@
       {:else}
         <span class="muted">Not linked to a server yet</span>
       {/if}
+      {#if linkedServer}
+        <button class="ghost small open-panels" onclick={openServer} title="Show this server's tile in the Panels tab">
+          Open in Panels ↗
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -300,7 +319,13 @@
         </div>
         <div class="meta-item">
           <span class="label muted">Server</span>
-          <span class="mono">{project.server_identifier ?? "— not linked —"}</span>
+          {#if linkedServer}
+            <button class="link-btn mono" onclick={openServer} title="Show this server's tile in the Panels tab">
+              {project.server_identifier} ↗
+            </button>
+          {:else}
+            <span class="mono">{project.server_identifier ?? "— not linked —"}</span>
+          {/if}
         </div>
         <div class="meta-item">
           <span class="label muted">Deploy target</span>
@@ -448,6 +473,26 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
+  }
+
+  .open-panels {
+    padding: 2px 10px;
+    font-size: 12px;
+  }
+
+  .link-btn {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    color: var(--accent);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .link-btn:hover {
+    text-decoration: underline;
   }
 
   .subtabs {

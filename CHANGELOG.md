@@ -6,6 +6,14 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **One click from a project to its server.** A project page now links
+  straight to its imported server's tile in the **Panels** tab — an "Open in
+  Panels ↗" button in the project header and the clickable server id in the
+  Overview sidebar. The Panels tab switches, scrolls the tile into view and
+  gives it a brief highlight ring (respecting reduced-motion).
+
 ### Changed
 
 - Completed the rename from the project's old codename to **Feather**: the

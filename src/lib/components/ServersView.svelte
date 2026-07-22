@@ -18,9 +18,11 @@
 
   let {
     panels,
+    focusServer = null,
     onManage,
   }: {
     panels: PanelInfo[];
+    focusServer?: { panelId: string; identifier: string } | null;
     onManage: () => void;
   } = $props();
 
@@ -34,6 +36,11 @@
   let consoles = $state<Record<string, string[]>>({});
   let openKey = $state<string | null>(null);
   let loading = $state(true);
+  // Tile the user asked to jump to (from a project); highlighted briefly.
+  let highlightKey = $state<string | null>(null);
+  // Identity of the focus request we've already acted on, so re-renders don't
+  // re-scroll. Plain (non-reactive) so touching it never re-runs the effect.
+  let handledFocus: { panelId: string; identifier: string } | null = null;
 
   let cancelled = false;
   const unlisteners: UnlistenFn[] = [];
@@ -152,6 +159,29 @@
       appendConsole(keyOf(panelId, id), `[feather] power "${signal}" failed: ${e}`);
     }
   }
+
+  // React to a "reveal this server" request from a project. Reading `entries`
+  // makes the effect re-run once the servers finish loading, so a click that
+  // lands before the list is ready still scrolls when the tile appears.
+  $effect(() => {
+    const f = focusServer;
+    if (!f || handledFocus === f) return;
+    const k = keyOf(f.panelId, f.identifier);
+    if (!entries.some((e) => keyOf(e.panelId, e.server.identifier) === k)) {
+      return; // still loading, or this panel/server isn't here — try again later
+    }
+    handledFocus = f;
+    highlightKey = k;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-server-key="${k}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = setTimeout(() => {
+      if (highlightKey === k) highlightKey = null;
+    }, 2600);
+    return () => clearTimeout(timer);
+  });
 </script>
 
 <div class="servers">
@@ -182,13 +212,15 @@
           <div class="grid">
             {#each group.servers as entry (keyOf(entry.panelId, entry.server.identifier))}
               {@const k = keyOf(entry.panelId, entry.server.identifier)}
-              <ServerCard
-                server={entry.server}
-                live={currentLive(k)}
-                opsOnly
-                onPower={(signal) => power(entry.panelId, entry.server.identifier, signal)}
-                onOpenConsole={() => (openKey = k)}
-              />
+              <div class="tile" class:highlight={highlightKey === k} data-server-key={k}>
+                <ServerCard
+                  server={entry.server}
+                  live={currentLive(k)}
+                  opsOnly
+                  onPower={(signal) => power(entry.panelId, entry.server.identifier, signal)}
+                  onOpenConsole={() => (openKey = k)}
+                />
+              </div>
             {/each}
           </div>
         {/if}
@@ -250,6 +282,36 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
+  }
+
+  .tile {
+    min-width: 0;
+    border-radius: 10px;
+    scroll-margin: 24px;
+  }
+
+  /* Brief ring when the user jumps here from a project's "Open in Panels". */
+  .tile.highlight {
+    animation: tile-focus 2.6s ease-out;
+  }
+
+  @keyframes tile-focus {
+    0% {
+      box-shadow: 0 0 0 0 var(--accent);
+    }
+    12% {
+      box-shadow: 0 0 0 3px var(--accent);
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile.highlight {
+      animation: none;
+      box-shadow: 0 0 0 3px var(--accent);
+    }
   }
 
   .small {

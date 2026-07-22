@@ -31,6 +31,17 @@
   let connecting = $state(true);
   let managing = $state(false);
   let update = $state<Update | null>(null);
+  // A pending "reveal this server in the Panels tab" request. Set when the
+  // user clicks through from a project; ServersView scrolls to and highlights
+  // the matching tile. A fresh object each time so repeat clicks re-trigger.
+  let focusServer = $state<{ panelId: string; identifier: string } | null>(null);
+
+  /** Jump from a project to its imported server's tile in the Panels tab. */
+  function goToServer(panelId: string, identifier: string) {
+    managing = false;
+    view = "panels";
+    focusServer = { panelId, identifier };
+  }
 
   const teamId = $derived(teamState.activeTeamId);
   const connectedKey = $derived(connected.map((p) => p.id).join(","));
@@ -117,7 +128,7 @@
   <main>
     {#if view === "projects"}
       {#if teamId}
-        <ProjectsScreen {teamId} />
+        <ProjectsScreen {teamId} onOpenServer={goToServer} />
       {/if}
     {:else if view === "members"}
       {#if teamId}
@@ -137,6 +148,7 @@
         {#key connectedKey}
           <ServersView
             panels={connected.map((p) => ({ id: p.id, name: p.name }))}
+            {focusServer}
             onManage={() => (managing = true)}
           />
         {/key}
