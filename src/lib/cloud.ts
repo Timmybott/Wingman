@@ -195,3 +195,56 @@ export async function deleteProject(id: string): Promise<void> {
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+// --- Team members ----------------------------------------------------------
+
+export type TeamRole = "owner" | "admin" | "member";
+
+export interface TeamMember {
+  user_id: string;
+  role: TeamRole;
+  created_at: string;
+  display_name: string | null;
+  username: string | null;
+}
+
+export async function listMembers(teamId: string): Promise<TeamMember[]> {
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("user_id, role, created_at, profiles(display_name, username)")
+    .eq("team_id", teamId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => {
+    // The profiles embed comes back as an object (to-one) but is typed loosely.
+    const raw = (row as { profiles?: unknown }).profiles;
+    const profile = (Array.isArray(raw) ? raw[0] : raw) as
+      | { display_name: string | null; username: string | null }
+      | null
+      | undefined;
+    return {
+      user_id: row.user_id,
+      role: row.role,
+      created_at: row.created_at,
+      display_name: profile?.display_name ?? null,
+      username: profile?.username ?? null,
+    };
+  });
+}
+
+/** Add an existing Feather account to the team by email (admins only). */
+export async function inviteMember(teamId: string, email: string): Promise<void> {
+  const { error } = await supabase.rpc("invite_member", {
+    p_team: teamId,
+    p_email: email.trim(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function removeMember(teamId: string, userId: string): Promise<void> {
+  const { error } = await supabase.rpc("remove_member", {
+    p_team: teamId,
+    p_user: userId,
+  });
+  if (error) throw new Error(error.message);
+}

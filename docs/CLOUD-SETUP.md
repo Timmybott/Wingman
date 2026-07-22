@@ -57,6 +57,10 @@ re-run.
 > fix — you'd only need `0001` and `0002`. `0003` exists to repair projects
 > that ran an earlier `0001`.
 
+Last, run [`supabase/0004_team_members.sql`](../supabase/0004_team_members.sql)
+in a **new query**. It adds the functions for inviting and removing team
+members by email. Also idempotent.
+
 ## 4. Turn on email login
 
 1. Go to **Authentication → Providers → Email** and make sure it's enabled.

@@ -29,6 +29,10 @@ runs locally on each machine; the cloud holds the shared data.
   are synced for the whole team. A **Projects / Panels** tab bar switches
   between planning and the server dashboard. (Deploy history, issues and
   richer planning attach to these projects in later milestones.)
+- **Team members** — a Members tab to see who's on the team and, for
+  admins/owners, add teammates by email or remove them. The team owner is
+  always protected. New teammates immediately share the team's projects,
+  panels and history.
 
 ### Changed
 

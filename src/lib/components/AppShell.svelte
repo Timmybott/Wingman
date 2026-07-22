@@ -8,6 +8,7 @@
   import Dashboard from "./Dashboard.svelte";
   import Footer from "./Footer.svelte";
   import Header from "./Header.svelte";
+  import MembersScreen from "./MembersScreen.svelte";
   import PanelManager from "./PanelManager.svelte";
   import ProjectsScreen from "./ProjectsScreen.svelte";
   import UpdateDialog from "./UpdateDialog.svelte";
@@ -24,7 +25,7 @@
     onLogout: () => void;
   } = $props();
 
-  let view = $state<"projects" | "panels">("projects");
+  let view = $state<"projects" | "panels" | "members">("projects");
   let panels = $state<CloudPanel[]>([]);
   let activePanel = $state<CloudPanel | null>(null);
   let loading = $state(true);
@@ -114,11 +115,16 @@
     <button class:active={view === "panels"} onclick={() => (view = "panels")}>
       Panels{#if activePanel}<span class="dot"></span>{/if}
     </button>
+    <button class:active={view === "members"} onclick={() => (view = "members")}>Members</button>
   </nav>
   <main>
     {#if view === "projects"}
       {#if teamId}
         <ProjectsScreen {teamId} />
+      {/if}
+    {:else if view === "members"}
+      {#if teamId}
+        <MembersScreen {teamId} />
       {/if}
     {:else if loading}
       <p class="muted center">Loading…</p>
