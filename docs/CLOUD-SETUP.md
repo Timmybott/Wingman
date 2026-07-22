@@ -1,10 +1,9 @@
 # Feather cloud setup (Supabase)
 
-Feather 2.1 adds accounts and team collaboration on top of the desktop app.
-Accounts, teams, saved Pterodactyl panels, projects, deploy history and issues
-live in a free [Supabase](https://supabase.com) project. The deploy engine
-still runs locally on each teammate's machine — Supabase only holds the shared
-data.
+Feather's team features (accounts, teams, members, encrypted shared panels,
+projects, deploy history and issues) run on a free
+[Supabase](https://supabase.com) project. The deploy engine still runs locally
+on each teammate's machine — Supabase only holds the shared data.
 
 You only need to do this once (one person per team), and it takes about five
 minutes. Afterwards, share the Project URL and anon key with your teammates so
@@ -68,10 +67,15 @@ Then run [`supabase/0005_deploys.sql`](../supabase/0005_deploys.sql) in a
 function, so each project's Deploys tab can show who deployed what and when.
 Also idempotent.
 
-Last, run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
+Then run [`supabase/0006_issues.sql`](../supabase/0006_issues.sql) in a
 **new query**. It adds the issues and comments tables (and the `create_issue`
 / `add_issue_comment` functions) that power each project's Issues tab. Also
 idempotent.
+
+Last, run [`supabase/0007_project_deletions.sql`](../supabase/0007_project_deletions.sql)
+in a **new query**. It adds the tombstone table and `request_project_deletion`
+function used by "delete everywhere", so a deleted project is also removed from
+every teammate's machine. Also idempotent.
 
 ## 4. Turn on email login
 

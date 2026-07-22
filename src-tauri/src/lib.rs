@@ -10,12 +10,14 @@ use wingman_core::ConfigStore;
 
 pub struct AppState {
     store: ConfigStore,
-    /// The panel connected for this session. Credentials come from the cloud
-    /// (decrypted per team member) and are held in memory only — never on
-    /// local disk. `None` until the frontend activates a panel.
-    active_panel: std::sync::Mutex<Option<ActivePanel>>,
-    /// One live websocket per subscribed server, keyed by identifier.
-    sockets: tokio::sync::Mutex<HashMap<String, SocketHandle>>,
+    /// Every panel connected this session, keyed by its cloud panel id. A team
+    /// can have several panels connected at once (the Panels tab shows all
+    /// their servers). Credentials come from the cloud (decrypted per team
+    /// member) and are held in memory only — never on local disk.
+    panels: std::sync::Mutex<HashMap<String, ActivePanel>>,
+    /// One live websocket per subscribed server, keyed by (panel id, server
+    /// identifier) so identifiers can't collide across panels.
+    sockets: tokio::sync::Mutex<HashMap<(String, String), SocketHandle>>,
     /// Project ids with a deploy in flight — guards against double deploys.
     deploys: tokio::sync::Mutex<std::collections::HashSet<String>>,
 }
@@ -31,7 +33,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             app.manage(AppState {
                 store: ConfigStore::new(dir),
-                active_panel: std::sync::Mutex::new(None),
+                panels: std::sync::Mutex::new(HashMap::new()),
                 sockets: tokio::sync::Mutex::new(HashMap::new()),
                 deploys: tokio::sync::Mutex::new(std::collections::HashSet::new()),
             });
@@ -47,9 +49,10 @@ pub fn run() {
             commands::subscribe_server,
             commands::unsubscribe_server,
             commands::send_console_command,
-            commands::list_projects,
-            commands::save_project,
-            commands::delete_project,
+            commands::set_project_path,
+            commands::get_project_path,
+            commands::remove_project_path,
+            commands::remove_local_project,
             commands::deploy_project,
             commands::rollback_project,
             commands::pull_project,

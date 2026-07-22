@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
-    createProject,
     listMembers,
     listPanels,
     listProjects,
@@ -9,6 +8,7 @@
     type CloudProject,
     type TeamMember,
   } from "../cloud";
+  import NewProjectDialog from "./NewProjectDialog.svelte";
   import ProjectDetail from "./ProjectDetail.svelte";
 
   let { teamId }: { teamId: string } = $props();
@@ -19,13 +19,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let selectedId = $state<string | null>(null);
-
-  // Create form
-  let showForm = $state(false);
-  let newName = $state("");
-  let newDescription = $state("");
-  let newPanelId = $state<string>("");
-  let creating = $state(false);
+  let showNew = $state(false);
 
   const selected = $derived(projects.find((p) => p.id === selectedId) ?? null);
 
@@ -51,28 +45,19 @@
     return id ? (panels.find((p) => p.id === id)?.name ?? null) : null;
   }
 
-  async function create(event: SubmitEvent) {
-    event.preventDefault();
-    if (newName.trim() === "") return;
-    creating = true;
+  function openNew() {
     error = null;
-    try {
-      const created = await createProject(teamId, {
-        name: newName,
-        description: newDescription,
-        panel_id: newPanelId === "" ? null : newPanelId,
-      });
-      projects.push(created);
-      newName = "";
-      newDescription = "";
-      newPanelId = "";
-      showForm = false;
-      selectedId = created.id;
-    } catch (e) {
-      error = String(e instanceof Error ? e.message : e);
-    } finally {
-      creating = false;
+    if (panels.length === 0) {
+      error = "Add a panel first (Panels tab) — a project imports one of its servers.";
+      return;
     }
+    showNew = true;
+  }
+
+  function onCreated(project: CloudProject) {
+    projects.push(project);
+    showNew = false;
+    selectedId = project.id;
   }
 
   function onChanged(updated: CloudProject) {
@@ -103,44 +88,14 @@
       <div>
         <h2>Projects</h2>
         <p class="muted">
-          Everything your team works on. Describe it, plan it, and — once a panel
-          is connected — deploy it. Shared with everyone on the team.
+          Each project imports one of your panel's servers so you can plan, track
+          issues, and deploy it. Shared with everyone on the team.
         </p>
       </div>
-      {#if !showForm}
-        <button class="primary" onclick={() => (showForm = true)}>New project</button>
-      {/if}
+      <button class="primary" onclick={openNew}>New project</button>
     </div>
 
     {#if error}<p class="error">{error}</p>{/if}
-
-    {#if showForm}
-      <form onsubmit={create}>
-        <div class="field">
-          <label for="pname">Name</label>
-          <input id="pname" bind:value={newName} placeholder="My Discord bot" autocomplete="off" />
-        </div>
-        <div class="field">
-          <label for="pdesc">Description <span class="muted">(optional)</span></label>
-          <textarea id="pdesc" bind:value={newDescription} rows="3" placeholder="What is it? What's the plan?"></textarea>
-        </div>
-        <div class="field">
-          <label for="ppanel">Panel <span class="muted">(optional — you can link it later)</span></label>
-          <select id="ppanel" bind:value={newPanelId}>
-            <option value="">— none —</option>
-            {#each panels as p (p.id)}
-              <option value={p.id}>{p.name}</option>
-            {/each}
-          </select>
-        </div>
-        <div class="actions">
-          <button type="button" class="ghost" onclick={() => (showForm = false)} disabled={creating}>Cancel</button>
-          <button type="submit" class="primary" disabled={creating || newName.trim() === ""}>
-            {creating ? "Creating…" : "Create project"}
-          </button>
-        </div>
-      </form>
-    {/if}
 
     {#if projects.length > 0}
       <ul class="list">
@@ -165,10 +120,20 @@
           </li>
         {/each}
       </ul>
-    {:else if !showForm}
-      <p class="empty muted">No projects yet. Create your first one.</p>
+    {:else}
+      <p class="empty muted">No projects yet. Import a server to get started.</p>
     {/if}
   </div>
+
+  {#if showNew}
+    <NewProjectDialog
+      {teamId}
+      {panels}
+      existing={projects}
+      {onCreated}
+      onClose={() => (showNew = false)}
+    />
+  {/if}
 {/if}
 
 <style>
@@ -197,35 +162,6 @@
   p {
     margin: 0;
     line-height: 1.5;
-  }
-
-  form {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .field {
-    margin-bottom: 14px;
-  }
-
-  textarea,
-  select {
-    width: 100%;
-    font: inherit;
-  }
-
-  textarea {
-    resize: vertical;
-  }
-
-  .actions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    margin-top: 18px;
   }
 
   .list {

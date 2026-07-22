@@ -4,6 +4,44 @@ All notable changes to Feather are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] — 2026-07-22
+
+Reworked the app around a clearer split: **Panels** for live server operation,
+**Projects** for planning and deploying. See the [README](README.md) for the
+full feature guide.
+
+### Added
+
+- **Two ways to delete a project.** *Remove from Feather* deletes the project
+  (and its issues and history) for the team but keeps everyone's local files.
+  *Delete everywhere* also removes the linked local folder on every teammate's
+  machine — a tombstone (`supabase/0007`) is recorded and each Feather acts on
+  it at launch. A safety guard refuses to delete shallow paths.
+
+### Changed
+
+- **Panels tab now shows every server across all the team's panels** at once,
+  each grouped under its panel, with power, live stats and console. The Rust
+  core supports several panels connected simultaneously (server commands are
+  scoped by panel). Deploy, git history and the file browser are moving off the
+  server tiles and into the matching project (Projects tab).
+- **Deploy, history and files now live in the project.** Each project page
+  gains a **Deploy** tab (deploy button with live progress, "Import from
+  server", commit local changes, git history with one-click rollback, and the
+  shared deploy timeline) and a **Files** tab (the server file browser),
+  wired to the project's imported server and this device's local folder. The
+  deploy engine now takes the full project config from the app (built from the
+  cloud project + local folder), so there's no separate local project store.
+- **Projects now import a server.** Creating a project means picking a panel
+  (required) and one of its existing servers — its RAM/CPU/disk limits are
+  shown, and servers already imported are marked. A local folder is optional:
+  add one to deploy from this device, or leave it out to plan and manage
+  across servers without keeping files locally. The chosen folder is a
+  per-device binding, so each teammate can pick their own (or none). Server
+  creation/deletion isn't offered — Pterodactyl's client API can't do it.
+- The Linux app icon now resolves correctly: the bundle identifier was aligned
+  with "Feather" so the desktop matches the window to its launcher/taskbar icon.
+
 ## [2.1.0] — 2026-07-22
 
 Cloud collaboration — Feather grows from a local-only app into a team

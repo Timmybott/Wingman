@@ -29,9 +29,9 @@
     error = null;
     try {
       const [st, log, ds] = await Promise.all([
-        repoStatus(project.id),
-        projectHistory(project.id, 50),
-        deployStatus(project.id),
+        repoStatus(project),
+        projectHistory(project, 50),
+        deployStatus(project),
       ]);
       status = st;
       history = log;
@@ -54,7 +54,7 @@
     busy = true;
     error = null;
     try {
-      await commitProject(project.id, message);
+      await commitProject(project, message);
       message = "";
       await load();
       onChanged();

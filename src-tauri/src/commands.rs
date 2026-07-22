@@ -24,23 +24,24 @@ pub struct SocketHandle {
     forwarder: tauri::async_runtime::JoinHandle<()>,
 }
 
-/// The Pterodactyl panel the session is currently talking to. Its credentials
-/// live encrypted in the cloud (Supabase) and are decrypted per team member;
-/// this device holds them in memory only while a panel is connected — the API
-/// key is never written to local disk.
+/// A Pterodactyl panel connected this session. Its credentials live encrypted
+/// in the cloud (Supabase) and are decrypted per team member; this device holds
+/// them in memory only while the panel is connected — never on local disk.
 #[derive(Clone)]
 pub struct ActivePanel {
     pub base_url: String,
     pub api_key: String,
 }
 
-fn client_for(state: &AppState) -> CmdResult<PanelClient> {
+/// Build a client for a specific connected panel (by cloud panel id).
+fn client_for(state: &AppState, panel_id: &str) -> CmdResult<PanelClient> {
     let panel = state
-        .active_panel
+        .panels
         .lock()
-        .expect("active_panel mutex poisoned")
-        .clone()
-        .ok_or_else(|| "no panel connected".to_string())?;
+        .expect("panels mutex poisoned")
+        .get(panel_id)
+        .cloned()
+        .ok_or_else(|| "panel not connected".to_string())?;
     PanelClient::new(&panel.base_url, &panel.api_key).map_err(|e| e.to_string())
 }
 
@@ -53,42 +54,45 @@ pub async fn test_connection(base_url: String, api_key: String) -> CmdResult<usi
 }
 
 /// Connect a team panel for this session by loading its decrypted credentials
-/// into memory. The frontend fetches the key from the cloud (panel_api_key
-/// RPC, team-members only) and hands it here; it is never persisted locally.
-/// Switching panels first tears down any sockets bound to the previous one.
+/// into memory, keyed by its cloud panel id. The frontend fetches the key from
+/// the cloud (panel_api_key RPC, team-members only) and hands it here; it is
+/// never persisted locally. Several panels can be connected at once.
 #[tauri::command]
 pub async fn set_active_panel(
     state: State<'_, AppState>,
+    panel_id: String,
     base_url: String,
     api_key: String,
 ) -> CmdResult<()> {
-    close_all_sockets(&state).await;
+    // Reconnecting the same panel replaces its creds; drop its old sockets.
+    close_panel_sockets(&state, &panel_id).await;
     let url = normalize_base_url(&base_url).map_err(|e| e.to_string())?;
-    *state
-        .active_panel
-        .lock()
-        .expect("active_panel mutex poisoned") = Some(ActivePanel {
-        base_url: url.to_string(),
-        api_key: api_key.trim().to_string(),
-    });
+    state.panels.lock().expect("panels mutex poisoned").insert(
+        panel_id,
+        ActivePanel {
+            base_url: url.to_string(),
+            api_key: api_key.trim().to_string(),
+        },
+    );
     Ok(())
 }
 
-/// Disconnect the active panel and close all its live sockets. The in-memory
-/// credentials are dropped; the cloud copy is untouched.
+/// Disconnect one panel and close its live sockets. The in-memory credentials
+/// are dropped; the cloud copy is untouched.
 #[tauri::command]
-pub async fn clear_active_panel(state: State<'_, AppState>) -> CmdResult<()> {
-    close_all_sockets(&state).await;
-    *state
-        .active_panel
+pub async fn clear_active_panel(state: State<'_, AppState>, panel_id: String) -> CmdResult<()> {
+    close_panel_sockets(&state, &panel_id).await;
+    state
+        .panels
         .lock()
-        .expect("active_panel mutex poisoned") = None;
+        .expect("panels mutex poisoned")
+        .remove(&panel_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> {
-    let client = client_for(&state)?;
+pub async fn list_servers(state: State<'_, AppState>, panel_id: String) -> CmdResult<Vec<Server>> {
+    let client = client_for(&state, &panel_id)?;
     client.list_servers().await.map_err(|e| e.to_string())
 }
 
@@ -97,9 +101,10 @@ pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> 
 #[tauri::command]
 pub async fn server_resources(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
 ) -> CmdResult<ServerStats> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .server_resources(&identifier)
         .await
@@ -109,11 +114,12 @@ pub async fn server_resources(
 #[tauri::command]
 pub async fn set_power(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     signal: String,
 ) -> CmdResult<()> {
     let signal: PowerSignal = signal.parse()?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .set_power(&identifier, signal)
         .await
@@ -121,30 +127,32 @@ pub async fn set_power(
 }
 
 /// Open the server's websocket and forward its events to the frontend as
-/// Tauri events named `server-event-{identifier}`. Idempotent.
+/// Tauri events named `server-event-{panel_id}-{identifier}`. Idempotent.
 #[tauri::command]
 pub async fn subscribe_server(
     app: AppHandle,
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
 ) -> CmdResult<()> {
+    let key = (panel_id.clone(), identifier.clone());
     let mut sockets = state.sockets.lock().await;
-    if sockets.contains_key(&identifier) {
+    if sockets.contains_key(&key) {
         return Ok(());
     }
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     let ServerSocket {
         mut events,
         outgoing,
     } = ServerSocket::spawn(client, identifier.clone());
-    let event_name = format!("server-event-{identifier}");
+    let event_name = format!("server-event-{panel_id}-{identifier}");
     let forwarder = tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
             let _ = app.emit(&event_name, &event);
         }
     });
     sockets.insert(
-        identifier,
+        key,
         SocketHandle {
             outgoing,
             forwarder,
@@ -154,8 +162,12 @@ pub async fn subscribe_server(
 }
 
 #[tauri::command]
-pub async fn unsubscribe_server(state: State<'_, AppState>, identifier: String) -> CmdResult<()> {
-    if let Some(handle) = state.sockets.lock().await.remove(&identifier) {
+pub async fn unsubscribe_server(
+    state: State<'_, AppState>,
+    panel_id: String,
+    identifier: String,
+) -> CmdResult<()> {
+    if let Some(handle) = state.sockets.lock().await.remove(&(panel_id, identifier)) {
         close_socket(handle);
     }
     Ok(())
@@ -164,12 +176,13 @@ pub async fn unsubscribe_server(state: State<'_, AppState>, identifier: String) 
 #[tauri::command]
 pub async fn send_console_command(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     command: String,
 ) -> CmdResult<()> {
     let sockets = state.sockets.lock().await;
     let handle = sockets
-        .get(&identifier)
+        .get(&(panel_id, identifier))
         .ok_or_else(|| "console is not connected".to_string())?;
     handle
         .outgoing
@@ -179,85 +192,102 @@ pub async fn send_console_command(
 }
 
 // ---------------------------------------------------------------------------
-// Projects & deploy
+// Per-device local folder bindings for cloud projects
 // ---------------------------------------------------------------------------
 
+/// Bind a cloud project to a local folder on this device, making sure it is a
+/// git repository (initializing one if needed). Returns whether the folder is
+/// currently empty, so the caller can offer to import the server's files
+/// before the first deploy.
 #[tauri::command]
-pub fn list_projects(state: State<'_, AppState>) -> CmdResult<Vec<ProjectConfig>> {
-    state.store.load_projects().map_err(|e| e.to_string())
-}
-
-/// Create or update a project. An empty id means "new". One project per
-/// server in v1 — a second link to the same server is rejected. Linking
-/// also makes sure the folder is a git repository (spec: the app
-/// initializes one when none exists).
-#[tauri::command]
-pub async fn save_project(
+pub fn set_project_path(
     state: State<'_, AppState>,
-    mut project: ProjectConfig,
-) -> CmdResult<ProjectConfig> {
-    if !project.local_path.is_dir() {
-        return Err(format!(
-            "project folder does not exist: {}",
-            project.local_path.display()
-        ));
+    project_id: String,
+    path: String,
+) -> CmdResult<bool> {
+    let dir = std::path::Path::new(&path);
+    if !dir.is_dir() {
+        return Err(format!("folder does not exist: {path}"));
     }
-    {
-        let path = project.local_path.clone();
-        tokio::task::spawn_blocking(move || git::ensure_repo(&path))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
-    }
-    if project.id.is_empty() {
-        project.id = wingman_core::config::new_project_id();
-    }
-    if project.name.trim().is_empty() {
-        project.name = project
-            .local_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Project".into());
-    }
-
-    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
-    let clash = projects
-        .iter()
-        .any(|p| p.server_identifier == project.server_identifier && p.id != project.id);
-    if clash {
-        return Err("this server already has a linked project".into());
-    }
-    match projects.iter_mut().find(|p| p.id == project.id) {
-        Some(existing) => *existing = project.clone(),
-        None => projects.push(project.clone()),
-    }
+    let empty = std::fs::read_dir(dir)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false);
+    git::ensure_repo(dir).map_err(|e| e.to_string())?;
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
+    map.insert(project_id, path);
     state
         .store
-        .save_projects(&projects)
+        .save_project_paths(&map)
         .map_err(|e| e.to_string())?;
-    Ok(project)
+    Ok(empty)
 }
 
+/// The local folder bound to a project on this device, if any.
 #[tauri::command]
-pub fn delete_project(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
-    let mut projects = state.store.load_projects().map_err(|e| e.to_string())?;
-    projects.retain(|p| p.id != project_id);
+pub fn get_project_path(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> CmdResult<Option<String>> {
+    Ok(state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?
+        .get(&project_id)
+        .cloned())
+}
+
+/// Remove this device's local binding for a project (does not touch files).
+#[tauri::command]
+pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
+    map.remove(&project_id);
     state
         .store
-        .save_projects(&projects)
+        .save_project_paths(&map)
+        .map_err(|e| e.to_string())
+}
+
+/// A path is deep enough that deleting it recursively can't hit a filesystem
+/// root or a bare home directory (e.g. `/`, `/home`, `/home/user`). Guards the
+/// "delete everywhere" tombstone action.
+fn safe_to_delete(dir: &std::path::Path) -> bool {
+    dir.components().count() >= 4
+}
+
+/// Remove a project from this device: drop its binding and deploy record, and
+/// — when `delete_files` — recursively delete the bound folder. Used for
+/// "Remove from Feather" (files kept) and for processing a "delete everywhere"
+/// tombstone (files deleted). Best effort; a missing folder is not an error.
+#[tauri::command]
+pub fn remove_local_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    delete_files: bool,
+) -> CmdResult<()> {
+    let mut map = state
+        .store
+        .load_project_paths()
+        .map_err(|e| e.to_string())?;
+    if let Some(path) = map.remove(&project_id) {
+        if delete_files {
+            let dir = std::path::Path::new(&path);
+            if dir.is_dir() && safe_to_delete(dir) {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+    state
+        .store
+        .save_project_paths(&map)
         .map_err(|e| e.to_string())?;
     let _ = state.store.delete_deploy_record(&project_id);
     Ok(())
-}
-
-fn find_project(state: &AppState, project_id: &str) -> CmdResult<ProjectConfig> {
-    state
-        .store
-        .load_projects()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|p| p.id == project_id)
-        .ok_or_else(|| "project not found".to_string())
 }
 
 /// Kick off a deploy. Progress is emitted as `deploy-event-{project_id}`
@@ -268,10 +298,10 @@ fn find_project(state: &AppState, project_id: &str) -> CmdResult<ProjectConfig> 
 pub async fn deploy_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<()> {
-    let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_deploy(client, state.store.clone(), project.clone());
     forward_engine_events(app, project, project_id, handle, "Deploy");
@@ -284,11 +314,11 @@ pub async fn deploy_project(
 pub async fn rollback_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     commit_id: String,
 ) -> CmdResult<()> {
-    let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_rollback(client, state.store.clone(), project.clone(), commit_id);
     forward_engine_events(app, project, project_id, handle, "Rollback");
@@ -303,7 +333,7 @@ pub async fn rollback_project(
 pub async fn pull_project(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     mode: String,
 ) -> CmdResult<()> {
     let mode = match mode.as_str() {
@@ -311,8 +341,8 @@ pub async fn pull_project(
         "sync" => PullMode::SyncIfClean,
         other => return Err(format!("unknown pull mode `{other}`")),
     };
-    let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
+    let project_id = project.id.clone();
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_pull(client, state.store.clone(), project.clone(), mode);
     forward_engine_events(app, project, project_id, handle, "Sync");
@@ -332,10 +362,9 @@ pub struct RemoteDeployInfo {
 #[tauri::command]
 pub async fn check_remote_deploy(
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<RemoteDeployInfo> {
-    let project = find_project(&state, &project_id)?;
-    let client = client_for(&state)?;
+    let client = client_for(&state, &project.panel_id)?;
     let Some(remote) = read_remote_state(&client, &project)
         .await
         .map_err(|e| e.to_string())?
@@ -347,7 +376,7 @@ pub async fn check_remote_deploy(
     };
     let record = state
         .store
-        .load_deploy_record(&project_id)
+        .load_deploy_record(&project.id)
         .map_err(|e| e.to_string())?;
     let newer = is_newer(&remote, record.as_ref());
     let dirty = if newer {
@@ -418,10 +447,11 @@ fn forward_engine_events(
 #[tauri::command]
 pub async fn list_server_files(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     directory: String,
 ) -> CmdResult<Vec<FileEntry>> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .list_files(&identifier, &directory)
         .await
@@ -431,11 +461,12 @@ pub async fn list_server_files(
 #[tauri::command]
 pub async fn delete_server_files(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     root: String,
     files: Vec<String>,
 ) -> CmdResult<()> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .delete_files(&identifier, &root, &files)
         .await
@@ -445,11 +476,12 @@ pub async fn delete_server_files(
 #[tauri::command]
 pub async fn create_server_folder(
     state: State<'_, AppState>,
+    panel_id: String,
     identifier: String,
     root: String,
     name: String,
 ) -> CmdResult<()> {
-    let client = client_for(&state)?;
+    let client = client_for(&state, &panel_id)?;
     client
         .create_folder(&identifier, &root, &name)
         .await
@@ -461,8 +493,7 @@ pub async fn create_server_folder(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn repo_status(state: State<'_, AppState>, project_id: String) -> CmdResult<RepoStatus> {
-    let project = find_project(&state, &project_id)?;
+pub async fn repo_status(project: ProjectConfig) -> CmdResult<RepoStatus> {
     tokio::task::spawn_blocking(move || {
         git::ensure_repo(&project.local_path)?;
         git::status(&project.local_path)
@@ -473,12 +504,7 @@ pub async fn repo_status(state: State<'_, AppState>, project_id: String) -> CmdR
 }
 
 #[tauri::command]
-pub async fn commit_project(
-    state: State<'_, AppState>,
-    project_id: String,
-    message: String,
-) -> CmdResult<CommitInfo> {
-    let project = find_project(&state, &project_id)?;
+pub async fn commit_project(project: ProjectConfig, message: String) -> CmdResult<CommitInfo> {
     let message = match message.trim() {
         "" => "Checkpoint".to_string(),
         trimmed => trimmed.to_string(),
@@ -494,11 +520,9 @@ pub async fn commit_project(
 
 #[tauri::command]
 pub async fn project_history(
-    state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
     limit: Option<usize>,
 ) -> CmdResult<Vec<CommitInfo>> {
-    let project = find_project(&state, &project_id)?;
     tokio::task::spawn_blocking(move || {
         git::ensure_repo(&project.local_path)?;
         git::log(&project.local_path, limit.unwrap_or(50))
@@ -525,12 +549,11 @@ pub struct DeployStatus {
 #[tauri::command]
 pub async fn deploy_status(
     state: State<'_, AppState>,
-    project_id: String,
+    project: ProjectConfig,
 ) -> CmdResult<DeployStatus> {
-    let project = find_project(&state, &project_id)?;
     let record = state
         .store
-        .load_deploy_record(&project_id)
+        .load_deploy_record(&project.id)
         .map_err(|e| e.to_string())?;
     let Some(record) = record else {
         return Ok(DeployStatus {
@@ -557,10 +580,19 @@ pub async fn deploy_status(
     })
 }
 
-async fn close_all_sockets(state: &AppState) {
+/// Close every live socket belonging to one panel (used when it reconnects or
+/// disconnects). Sockets are keyed by (panel id, server identifier).
+async fn close_panel_sockets(state: &AppState, panel_id: &str) {
     let mut sockets = state.sockets.lock().await;
-    for (_, handle) in sockets.drain() {
-        close_socket(handle);
+    let keys: Vec<(String, String)> = sockets
+        .keys()
+        .filter(|(pid, _)| pid == panel_id)
+        .cloned()
+        .collect();
+    for key in keys {
+        if let Some(handle) = sockets.remove(&key) {
+            close_socket(handle);
+        }
     }
 }
 

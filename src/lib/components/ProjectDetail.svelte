@@ -1,15 +1,23 @@
 <script lang="ts">
   import {
     deleteProject,
-    listDeploys,
+    requestProjectDeletion,
     updateProject,
     type CloudPanel,
     type CloudProject,
-    type DeployEntry,
     type PostDeploy,
     type TeamMember,
   } from "../cloud";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import {
+    getProjectPath,
+    removeLocalProject,
+    removeProjectPath,
+    setProjectPath,
+  } from "../api";
   import { toggleTaskInMarkdown } from "../markdown";
+  import DeployPanel from "./DeployPanel.svelte";
+  import FileBrowser from "./FileBrowser.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
   import Markdown from "./Markdown.svelte";
 
@@ -29,31 +37,10 @@
     onDeleted: (id: string) => void;
   } = $props();
 
-  type Tab = "overview" | "issues" | "deploys" | "settings";
+  type Tab = "overview" | "issues" | "deploy" | "files" | "settings";
   let tab = $state<Tab>("overview");
 
   let error = $state<string | null>(null);
-
-  // Deploys tab (lazy-loaded).
-  let deploys = $state<DeployEntry[]>([]);
-  let deploysLoading = $state(false);
-  let deploysLoaded = $state(false);
-  let deploysError = $state<string | null>(null);
-
-  async function openDeploys() {
-    tab = "deploys";
-    if (deploysLoaded || deploysLoading) return;
-    deploysLoading = true;
-    deploysError = null;
-    try {
-      deploys = await listDeploys(project.id);
-      deploysLoaded = true;
-    } catch (e) {
-      deploysError = String(e instanceof Error ? e.message : e);
-    } finally {
-      deploysLoading = false;
-    }
-  }
 
   // Overview: quick inline description edit.
   let editingDescription = $state(false);
@@ -71,8 +58,47 @@
   let autoBackup = $state(true);
   let savingSettings = $state(false);
 
-  let confirmingDelete = $state(false);
+  let dangerMode = $state<null | "feather" | "everywhere">(null);
   let deleting = $state(false);
+
+  // Per-device local folder binding.
+  let localPath = $state<string | null>(null);
+  let pathBusy = $state(false);
+
+  $effect(() => {
+    const id = project.id;
+    getProjectPath(id)
+      .then((p) => (localPath = p))
+      .catch(() => (localPath = null));
+  });
+
+  async function chooseFolder() {
+    const picked = await open({ directory: true, title: "Choose the local project folder" });
+    if (typeof picked !== "string") return;
+    pathBusy = true;
+    error = null;
+    try {
+      await setProjectPath(project.id, picked);
+      localPath = picked;
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      pathBusy = false;
+    }
+  }
+
+  async function unlinkFolder() {
+    pathBusy = true;
+    error = null;
+    try {
+      await removeProjectPath(project.id);
+      localPath = null;
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      pathBusy = false;
+    }
+  }
 
   const panelName = $derived(panels.find((p) => p.id === project.panel_id)?.name ?? null);
   const creator = $derived(
@@ -154,11 +180,27 @@
     }
   }
 
-  async function remove() {
+  /** Delete the cloud project; keep local files on every device. */
+  async function removeFromFeather() {
     deleting = true;
     error = null;
     try {
       await deleteProject(project.id);
+      await removeLocalProject(project.id, false);
+      onDeleted(project.id);
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+      deleting = false;
+    }
+  }
+
+  /** Tombstone + delete the project, and delete local folders everywhere. */
+  async function deleteEverywhere() {
+    deleting = true;
+    error = null;
+    try {
+      await requestProjectDeletion(project.id);
+      await removeLocalProject(project.id, true);
       onDeleted(project.id);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
@@ -174,14 +216,6 @@
     });
   }
 
-  function formatDateTime(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
 </script>
 
 <div class="detail">
@@ -204,9 +238,9 @@
   <nav class="subtabs">
     <button class:active={tab === "overview"} onclick={() => (tab = "overview")}>Overview</button>
     <button class:active={tab === "issues"} onclick={() => (tab = "issues")}>Issues</button>
-    <button class:active={tab === "deploys"} onclick={openDeploys}>Deploys</button>
+    <button class:active={tab === "deploy"} onclick={() => (tab = "deploy")}>Deploy</button>
+    <button class:active={tab === "files"} onclick={() => (tab = "files")}>Files</button>
     <button class:active={tab === "settings"} onclick={openSettings}>Settings</button>
-    <span class="soon" title="Coming in the next milestone">Planning soon</span>
   </nav>
 
   {#if error}<p class="error">{error}</p>{/if}
@@ -236,6 +270,27 @@
             <p class="muted">No description yet. Add goals, plans and notes so your team is on the same page.</p>
           {/if}
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Local folder · this device</h2>
+          </div>
+          {#if localPath}
+            <p class="folder mono">{localPath}</p>
+            <div class="row-actions">
+              <button class="ghost small" onclick={chooseFolder} disabled={pathBusy}>Change…</button>
+              <button class="ghost small" onclick={unlinkFolder} disabled={pathBusy}>Unlink</button>
+            </div>
+          {:else}
+            <p class="muted">
+              Not set on this device. Link a folder to deploy this project from
+              here — each teammate picks their own (or none).
+            </p>
+            <div class="row-actions">
+              <button class="primary small" onclick={chooseFolder} disabled={pathBusy}>Choose folder…</button>
+            </div>
+          {/if}
+        </div>
       </div>
 
       <aside class="side">
@@ -263,42 +318,14 @@
     </div>
   {:else if tab === "issues"}
     <IssuesPanel projectId={project.id} />
-  {:else if tab === "deploys"}
-    <div class="deploys">
-      {#if deploysLoading}
-        <p class="muted center">Loading deploys…</p>
-      {:else if deploysError}
-        <p class="error">{deploysError}</p>
-      {:else if deploys.length === 0}
-        <p class="muted center empty">
-          No deploys recorded yet. Deploys and rollbacks you run from the server
-          dashboard show up here for the whole team.
-        </p>
-      {:else}
-        <ul class="deploy-list">
-          {#each deploys as d (d.id)}
-            <li>
-              <span class="badge {d.status}">{d.status === "success" ? "✓" : "✕"}</span>
-              <div class="d-main">
-                <span class="d-title">
-                  <span class="d-kind">{d.kind}</span>
-                  {#if d.commit_summary}
-                    <span class="d-summary">{d.commit_summary}</span>
-                  {:else if d.status === "failed" && d.message}
-                    <span class="d-summary fail">{d.message}</span>
-                  {/if}
-                </span>
-                <span class="d-meta muted">
-                  {#if d.commit}<span class="mono">{d.commit}</span> · {/if}
-                  {#if d.files_count !== null}{d.files_count} files · {/if}
-                  {d.display_name?.trim() || d.username || "someone"} · {formatDateTime(d.created_at)}
-                </span>
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
+  {:else if tab === "deploy"}
+    <DeployPanel {project} {localPath} />
+  {:else if tab === "files"}
+    {#if project.panel_id && project.server_identifier}
+      <FileBrowser panelId={project.panel_id} identifier={project.server_identifier} />
+    {:else}
+      <p class="muted center empty">This project isn't linked to a server, so there are no files to browse.</p>
+    {/if}
   {:else}
     <form class="settings" onsubmit={saveSettings}>
       <div class="field">
@@ -314,7 +341,7 @@
         <div class="field">
           <label for="s-panel">Panel</label>
           <select id="s-panel" bind:value={panelId}>
-            <option value="">— none —</option>
+            <option value="" disabled>Select a panel…</option>
             {#each panels as p (p.id)}
               <option value={p.id}>{p.name}</option>
             {/each}
@@ -356,12 +383,41 @@
       </div>
 
       <div class="danger-zone">
-        {#if confirmingDelete}
-          <span class="muted">Delete this project for the whole team?</span>
-          <button type="button" class="ghost" onclick={() => (confirmingDelete = false)} disabled={deleting}>Cancel</button>
-          <button type="button" class="danger-btn" onclick={remove} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
+        <h3>Danger zone</h3>
+        {#if dangerMode === null}
+          <div class="danger-row">
+            <div class="danger-text">
+              <strong>Remove from Feather</strong>
+              <p class="muted">Deletes the project, its issues and deploy history for the team. Local files on every device are kept.</p>
+            </div>
+            <button type="button" class="ghost danger" onclick={() => (dangerMode = "feather")}>Remove</button>
+          </div>
+          <div class="danger-row">
+            <div class="danger-text">
+              <strong>Delete everywhere</strong>
+              <p class="muted">Also deletes the linked local folder on every teammate's machine on their next launch. Permanent.</p>
+            </div>
+            <button type="button" class="ghost danger" onclick={() => (dangerMode = "everywhere")}>Delete everywhere</button>
+          </div>
+        {:else if dangerMode === "feather"}
+          <p>Remove “{project.name}” from Feather? Local files stay on every device.</p>
+          <div class="row-actions">
+            <button type="button" class="ghost" onclick={() => (dangerMode = null)} disabled={deleting}>Cancel</button>
+            <button type="button" class="danger-btn" onclick={removeFromFeather} disabled={deleting}>
+              {deleting ? "Removing…" : "Remove from Feather"}
+            </button>
+          </div>
         {:else}
-          <button type="button" class="ghost danger" onclick={() => (confirmingDelete = true)}>Delete project</button>
+          <p>
+            Delete “{project.name}” <strong>everywhere</strong>, including the linked local folder on
+            every teammate's device? This cannot be undone.
+          </p>
+          <div class="row-actions">
+            <button type="button" class="ghost" onclick={() => (dangerMode = null)} disabled={deleting}>Cancel</button>
+            <button type="button" class="danger-btn" onclick={deleteEverywhere} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete everywhere"}
+            </button>
+          </div>
         {/if}
       </div>
     </form>
@@ -422,18 +478,24 @@
     border-bottom-color: var(--accent);
   }
 
-  .subtabs .soon {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--text-muted);
-    opacity: 0.7;
-  }
-
   .overview {
     display: grid;
     grid-template-columns: 1fr 240px;
     gap: 22px;
     align-items: start;
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+
+  .folder {
+    word-break: break-all;
+    margin-bottom: 8px;
+    font-size: 13px;
   }
 
   .card {
@@ -452,11 +514,6 @@
 
   h2 {
     font-size: 14px;
-  }
-
-  .description {
-    line-height: 1.65;
-    white-space: pre-wrap;
   }
 
   .hint {
@@ -576,12 +633,42 @@
   }
 
   .danger-zone {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     margin-top: 26px;
     padding-top: 18px;
     border-top: 1px solid var(--border);
+  }
+
+  .danger-zone h3 {
+    color: var(--danger, #f87171);
+    margin-bottom: 12px;
+  }
+
+  .danger-zone > p {
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+
+  .danger-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+  }
+
+  .danger-row + .danger-row {
+    border-top: 1px solid var(--border);
+  }
+
+  .danger-text p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+    max-width: 46ch;
+  }
+
+  .danger-row .danger {
+    flex-shrink: 0;
   }
 
   .danger:hover {
@@ -600,79 +687,6 @@
     max-width: 420px;
     margin: 0 auto;
     line-height: 1.5;
-  }
-
-  .deploy-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .deploy-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-
-  .badge {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .badge.success {
-    background: #10b98122;
-    color: #34d399;
-  }
-
-  .badge.failed {
-    background: #ef444422;
-    color: #f87171;
-  }
-
-  .d-main {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .d-title {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .d-kind {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted);
-  }
-
-  .d-summary {
-    font-weight: 600;
-    font-size: 14px;
-  }
-
-  .d-summary.fail {
-    font-weight: 400;
-    color: var(--text-muted);
-  }
-
-  .d-meta {
-    font-size: 12px;
   }
 
   @media (max-width: 640px) {

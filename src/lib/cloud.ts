@@ -196,6 +196,25 @@ export async function deleteProject(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Delete a project everywhere: records a tombstone (so every teammate's
+ * Feather deletes its local copy on next load) and deletes the cloud project.
+ */
+export async function requestProjectDeletion(id: string): Promise<void> {
+  const { error } = await supabase.rpc("request_project_deletion", { p_project: id });
+  if (error) throw new Error(error.message);
+}
+
+/** Project ids the team has tombstoned for "delete everywhere". */
+export async function listProjectDeletions(teamId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("project_deletions")
+    .select("project_id")
+    .eq("team_id", teamId);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => row.project_id);
+}
+
 // --- Team members ----------------------------------------------------------
 
 export type TeamRole = "owner" | "admin" | "member";

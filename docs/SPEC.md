@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 22. Juli 2026 · Version 0.3 (ergänzt um die Cloud- & Team-Kollaboration von v2.1 — siehe Abschnitt 10; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
+> Stand: 22. Juli 2026 · Version 0.4 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -222,3 +222,17 @@ Ab v2.1 wird Feather vom lokalen Einzelplatz-Tool zur **team-fähigen, cloud-ges
 - API-Keys nur verschlüsselt gespeichert (Vault-Master-Key), Entschlüsselung ausschließlich für Mitglieder; auf dem Gerät nur im Speicher, nie auf Platte.
 - Anon/Public-Key + Projekt-URL dürfen in der App liegen (Schutz über RLS, nicht über Geheimhaltung); Service-Role-Key und DB-Passwort niemals in die App.
 - Der Markdown-Renderer escaped jede Eingabe und lässt nur `http(s)`/`mailto`-Links zu.
+
+### 10.6 Panels/Projects-Rework (v2.2)
+
+Die App wird um einen klaren Schnitt herum neu strukturiert: **Panels = Server-Betrieb**, **Projects = planen/deployen/managen**. Ein Team hat mindestens ein Panel; die Server darin werden als Projekte importiert.
+
+**Grundsatzentscheidung (geklärt):** Server *erstellen/löschen* und RAM/CPU/Disk *setzen* geht mit dem **Client-API-Key nicht** (nur Admin/Application-API, die Anbieter nicht rausgeben). Deshalb: **Import** vorhandener Server statt Erstellen; Limits werden read-only angezeigt; kein „Server mitlöschen".
+
+- **Panels-Tab:** Feather verbindet sich mit **allen** Team-Panels gleichzeitig (Rust-Kern: Map `panel_id → Zugangsdaten`, Server-Befehle + Sockets nach `panel_id` getrennt, Events `server-event-{panel_id}-{identifier}`). Zeigt **alle Server aller Panels** mit Power + Live-Stats + Konsole.
+- **Projekt = importierter Server:** „Neues Projekt" → Panel (Pflicht) → vorhandener Server → optional lokaler Ordner. Die lokale Ordner-Bindung ist **pro Gerät** (`project_paths.json`), das Cloud-Projekt bleibt die geteilte Definition.
+- **Projekt-Detail-Tabs:** Overview (Beschreibung/Planung + lokaler Ordner), Issues, **Deploy** (Deploy-Button + Fortschritt, Import vom Server, Commit, git-Historie/Rollback, geteilte Deploy-Timeline), **Files** (Server-Browser), Settings. Deploy/History/Files sind aus den Panel-Kacheln hierher gewandert.
+- **Deploy-Engine:** bekommt die komplette `ProjectConfig` vom Frontend (Cloud-Projekt + lokaler Ordner); der alte lokale Projekt-Store entfällt.
+- **Löschen (2 Stufen):** *Aus Feather entfernen* (Cloud-Projekt weg, lokale Dateien bleiben) und *überall löschen* (Tombstone `project_deletions` (0007) + Cloud-Projekt weg; jeder Client löscht seinen lokalen Ordner beim nächsten Start; Guard gegen flache Pfade).
+- **Migrationen:** `0007_project_deletions.sql` ergänzt.
+- **Linux-Icon-Fix:** Bundle-`identifier` von `…wingman` auf `…feather` gezogen, damit der Desktop das Fenster seinem `.desktop`-Icon zuordnet.

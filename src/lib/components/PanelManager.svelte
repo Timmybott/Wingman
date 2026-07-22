@@ -3,19 +3,16 @@
   import { createPanel, deletePanel, type CloudPanel } from "../cloud";
 
   let {
-    panels,
     teamId,
-    activating,
-    activateError,
-    onActivate,
+    panels,
     onChanged,
+    onClose,
   }: {
-    panels: CloudPanel[];
     teamId: string;
-    activating: boolean;
-    activateError: string | null;
-    onActivate: (panel: CloudPanel) => void;
+    panels: CloudPanel[];
+    /** Called after add/remove so the shell can reconnect. */
     onChanged: () => Promise<void>;
+    onClose: () => void;
   } = $props();
 
   let showForm = $state(false);
@@ -29,7 +26,6 @@
 
   const canSubmit = $derived(baseUrl.trim() !== "" && apiKey.trim() !== "" && !busy);
 
-  /** Explicit name, else the URL host, else the raw URL. */
   function label(): string {
     if (name.trim() !== "") return name.trim();
     const url = baseUrl.trim();
@@ -97,18 +93,19 @@
     <div>
       <h2>Panels</h2>
       <p class="muted">
-        Pterodactyl connections shared with your team. Keys are encrypted in the
-        cloud — everyone on the team can deploy, no one has to re-enter them.
+        Pterodactyl connections for this team. Their servers appear under
+        <strong>Servers</strong>; keys are encrypted in the cloud and shared with the team.
       </p>
     </div>
-    {#if !showForm}
-      <button class="primary" onclick={() => (showForm = true)}>Add panel</button>
-    {/if}
+    <div class="head-actions">
+      {#if !showForm}
+        <button class="primary" onclick={() => (showForm = true)}>Add panel</button>
+      {/if}
+      <button class="ghost" onclick={onClose}>Done</button>
+    </div>
   </div>
 
-  {#if activateError}
-    <p class="error">{activateError}</p>
-  {/if}
+  {#if error}<p class="error">{error}</p>{/if}
 
   {#if panels.length > 0}
     <ul class="list">
@@ -118,23 +115,14 @@
             <span class="name">{panel.name}</span>
             <span class="muted url">{panel.base_url}</span>
           </div>
-          <div class="row-actions">
-            <button
-              class="primary"
-              disabled={activating || deletingId !== null}
-              onclick={() => onActivate(panel)}
-            >
-              {activating ? "Connecting…" : "Connect"}
-            </button>
-            <button
-              class="ghost danger"
-              title="Remove panel"
-              disabled={deletingId !== null}
-              onclick={() => remove(panel)}
-            >
-              {deletingId === panel.id ? "…" : "Remove"}
-            </button>
-          </div>
+          <button
+            class="ghost danger"
+            title="Remove panel"
+            disabled={deletingId !== null}
+            onclick={() => remove(panel)}
+          >
+            {deletingId === panel.id ? "…" : "Remove"}
+          </button>
         </li>
       {/each}
     </ul>
@@ -167,9 +155,7 @@
         <input id="name" bind:value={name} placeholder="My panel" autocomplete="off" />
       </div>
 
-      {#if error}
-        <p class="error">{error}</p>
-      {:else if testResult !== null}
+      {#if testResult !== null}
         <p class="ok">
           Connection works — {testResult}
           {testResult === 1 ? "server" : "servers"} visible.
@@ -199,7 +185,7 @@
 <style>
   .panels {
     max-width: 620px;
-    margin: 40px auto 0;
+    margin: 8px auto 0;
   }
 
   .head {
@@ -210,6 +196,12 @@
     margin-bottom: 20px;
   }
 
+  .head-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   h2 {
     font-size: 18px;
     margin-bottom: 6px;
@@ -218,10 +210,6 @@
   p {
     margin: 0;
     line-height: 1.5;
-  }
-
-  .head .primary {
-    flex-shrink: 0;
   }
 
   .list {
@@ -258,12 +246,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .row-actions {
-    display: flex;
-    gap: 8px;
-    flex-shrink: 0;
   }
 
   .danger:hover {
