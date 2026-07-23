@@ -282,12 +282,13 @@ export interface TeamMember {
   created_at: string;
   display_name: string | null;
   username: string | null;
+  avatar_url: string | null;
 }
 
 export async function listMembers(teamId: string): Promise<TeamMember[]> {
   const { data, error } = await supabase
     .from("team_members")
-    .select("user_id, role, created_at, profiles(display_name, username)")
+    .select("user_id, role, created_at, profiles(display_name, username, avatar_url)")
     .eq("team_id", teamId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
@@ -295,7 +296,7 @@ export async function listMembers(teamId: string): Promise<TeamMember[]> {
     // The profiles embed comes back as an object (to-one) but is typed loosely.
     const raw = (row as { profiles?: unknown }).profiles;
     const profile = (Array.isArray(raw) ? raw[0] : raw) as
-      | { display_name: string | null; username: string | null }
+      | { display_name: string | null; username: string | null; avatar_url: string | null }
       | null
       | undefined;
     return {
@@ -304,6 +305,7 @@ export async function listMembers(teamId: string): Promise<TeamMember[]> {
       created_at: row.created_at,
       display_name: profile?.display_name ?? null,
       username: profile?.username ?? null,
+      avatar_url: profile?.avatar_url ?? null,
     };
   });
 }

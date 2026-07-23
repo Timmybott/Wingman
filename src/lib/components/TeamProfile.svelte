@@ -214,7 +214,11 @@
           <div class="member-list">
             {#each members as m (m.user_id)}
               <button class="member" onclick={() => onOpenProfile?.(m.user_id)} title="View profile">
-                <span class="avatar">{memberName(m).charAt(0).toUpperCase()}</span>
+                {#if m.avatar_url}
+                  <img class="avatar-img" src={m.avatar_url} alt="" />
+                {:else}
+                  <span class="avatar">{memberName(m).charAt(0).toUpperCase()}</span>
+                {/if}
                 <span class="m-name">{memberName(m)}</span>
                 <span class="m-role role-{m.role}">{m.role}</span>
               </button>
@@ -355,17 +359,26 @@
     background: var(--surface-2);
   }
 
-  .member .avatar {
+  .member .avatar,
+  .member .avatar-img {
     width: 30px;
     height: 30px;
     border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .member .avatar {
     display: grid;
     place-items: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
     font-weight: 700;
     font-size: 13px;
-    flex-shrink: 0;
+  }
+
+  .member .avatar-img {
+    object-fit: cover;
+    border: 1px solid var(--border);
   }
 
   .m-name {

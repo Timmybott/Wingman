@@ -6,6 +6,26 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-07-23
+
+A bug-fix release.
+
+### Fixed
+
+- **Snapshot downloads no longer fail with HTTP 400.** The storage function read
+  files with Pterodactyl's `files/contents` endpoint, which is meant for text
+  and rejects binary/large files (our zips) — so every snapshot download failed,
+  breaking **deploys** and **commit file diffs**. It now fetches a signed
+  download URL (`files/download`), the same reliable path the sync pull uses.
+  **Redeploy the Edge Function** for this fix: `supabase functions deploy
+  feather-storage`.
+- **Opening a project's team no longer errors.** The team link passed the click
+  event as the team id (`invalid input syntax for type uuid: "[object
+  PointerEvent]"`); it now opens the project's team correctly.
+- **Member avatars show up.** The Members list and a team page rendered only the
+  initial letter — `listMembers` didn't fetch `avatar_url`. Members with an
+  avatar now show their picture (initial as a fallback).
+
 ## [2.5.0] — 2026-07-23
 
 A deploy-model release. Commits and deploys are reworked so a **deploy ships
