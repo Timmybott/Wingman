@@ -306,7 +306,7 @@
 </script>
 
 <div class="detail">
-  <button class="back ghost" onclick={onBack}>← All projects</button>
+  <button class="back ghost" onclick={onBack}>← Back</button>
 
   <header class="project-head">
     <div class="head-main">

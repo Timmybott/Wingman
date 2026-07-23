@@ -359,6 +359,17 @@
   }
 </script>
 
+{#if showHistory}
+  <ProjectHistory
+    {project}
+    {onRollback}
+    {focusDeployAt}
+    onClose={() => {
+      showHistory = false;
+      focusDeployAt = null;
+    }}
+  />
+{:else}
 <div class="deploy">
   {#if !config}
     <div class="card notice">
@@ -445,17 +456,6 @@
     </ul>
   {/if}
 </div>
-
-{#if showHistory}
-  <ProjectHistory
-    {project}
-    {onRollback}
-    {focusDeployAt}
-    onClose={() => {
-      showHistory = false;
-      focusDeployAt = null;
-    }}
-  />
 {/if}
 
 <style>

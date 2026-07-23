@@ -1,70 +1,25 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import {
-    listMembers,
-    listPanels,
-    listProjects,
-    type CloudPanel,
-    type CloudProject,
-    type TeamMember,
-  } from "../cloud";
+  import { type CloudPanel, type CloudProject } from "../cloud";
   import NewProjectDialog from "./NewProjectDialog.svelte";
-  import ProjectDetail from "./ProjectDetail.svelte";
 
   let {
     teamId,
-    teamName,
-    openProjectId = null,
-    onConsumedFocus,
-    onOpenServer,
-    onOpenTeam,
-    onOpenProfile,
+    projects,
+    panels,
+    loading = false,
+    onOpenProject,
+    onCreated,
   }: {
     teamId: string;
-    teamName: string;
-    openProjectId?: string | null;
-    onConsumedFocus?: () => void;
-    onOpenServer: (panelId: string, identifier: string) => void;
-    onOpenTeam: () => void;
-    onOpenProfile: (userId: string) => void;
+    projects: CloudProject[];
+    panels: CloudPanel[];
+    loading?: boolean;
+    onOpenProject: (projectId: string) => void;
+    onCreated: (project: CloudProject) => void;
   } = $props();
 
-  let projects = $state<CloudProject[]>([]);
-  let panels = $state<CloudPanel[]>([]);
-  let members = $state<TeamMember[]>([]);
-  let loading = $state(true);
   let error = $state<string | null>(null);
-  let selectedId = $state<string | null>(null);
   let showNew = $state(false);
-
-  const selected = $derived(projects.find((p) => p.id === selectedId) ?? null);
-
-  async function load() {
-    loading = true;
-    error = null;
-    try {
-      [projects, panels, members] = await Promise.all([
-        listProjects(teamId),
-        listPanels(teamId),
-        listMembers(teamId),
-      ]);
-    } catch (e) {
-      error = String(e instanceof Error ? e.message : e);
-    } finally {
-      loading = false;
-    }
-  }
-
-  onMount(load);
-
-  // Open a project requested from elsewhere (e.g. a server tile in Panels),
-  // once it's loaded.
-  $effect(() => {
-    if (openProjectId && projects.some((p) => p.id === openProjectId)) {
-      selectedId = openProjectId;
-      onConsumedFocus?.();
-    }
-  });
 
   function panelName(id: string | null): string | null {
     return id ? (panels.find((p) => p.id === id)?.name ?? null) : null;
@@ -79,97 +34,71 @@
     showNew = true;
   }
 
-  function onCreated(project: CloudProject) {
-    projects.push(project);
+  function created(project: CloudProject) {
     showNew = false;
-    selectedId = project.id;
-  }
-
-  function onChanged(updated: CloudProject) {
-    const i = projects.findIndex((p) => p.id === updated.id);
-    if (i >= 0) projects[i] = updated;
-  }
-
-  function onDeleted(id: string) {
-    projects = projects.filter((p) => p.id !== id);
-    selectedId = null;
+    onCreated(project);
   }
 </script>
 
-{#if loading}
-  <p class="muted center">Loading projects…</p>
-{:else if selected}
-  <ProjectDetail
-    project={selected}
-    {panels}
-    {members}
-    {teamName}
-    onBack={() => (selectedId = null)}
-    {onChanged}
-    {onDeleted}
-    {onOpenServer}
-    {onOpenTeam}
-    {onOpenProfile}
-  />
-{:else}
-  <div class="projects">
-    <div class="head">
-      <div>
-        <h2>Projects</h2>
-        <p class="muted">
-          Each project imports one of your panel's servers so you can plan, track
-          issues, and deploy it. Shared with everyone on the team.
-        </p>
-      </div>
-      <button class="primary" onclick={openNew}>New project</button>
+<div class="projects">
+  <div class="head">
+    <div>
+      <h2>Projects</h2>
+      <p class="muted">
+        Each project imports one of your panel's servers so you can plan, track
+        issues, and deploy it. Shared with everyone on the team.
+      </p>
     </div>
-
-    {#if error}<p class="error">{error}</p>{/if}
-
-    {#if projects.length > 0}
-      <ul class="list">
-        {#each projects as project (project.id)}
-          <li>
-            <button class="card" onclick={() => (selectedId = project.id)}>
-              {#if project.logo_url}
-                <img class="card-logo" src={project.logo_url} alt={project.name} />
-              {:else}
-                <span class="card-logo placeholder">{project.name.charAt(0).toUpperCase()}</span>
-              {/if}
-              <span class="card-body">
-                <span class="name">{project.name}</span>
-                {#if project.description.trim() !== ""}
-                  <span class="muted desc">{project.description}</span>
-                {:else}
-                  <span class="muted desc empty">No description yet</span>
-                {/if}
-                <span class="tags">
-                  {#if panelName(project.panel_id)}
-                    <span class="tag">{panelName(project.panel_id)}</span>
-                  {/if}
-                  {#if project.server_identifier}
-                    <span class="tag mono">{project.server_identifier}</span>
-                  {/if}
-                </span>
-              </span>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p class="empty muted">No projects yet. Import a server to get started.</p>
-    {/if}
+    <button class="primary" onclick={openNew}>New project</button>
   </div>
 
-  {#if showNew}
-    <NewProjectDialog
-      {teamId}
-      {panels}
-      existing={projects}
-      {onCreated}
-      onClose={() => (showNew = false)}
-    />
+  {#if error}<p class="error">{error}</p>{/if}
+
+  {#if loading}
+    <p class="muted center">Loading projects…</p>
+  {:else if projects.length > 0}
+    <ul class="list">
+      {#each projects as project (project.id)}
+        <li>
+          <button class="card" onclick={() => onOpenProject(project.id)}>
+            {#if project.logo_url}
+              <img class="card-logo" src={project.logo_url} alt={project.name} />
+            {:else}
+              <span class="card-logo placeholder">{project.name.charAt(0).toUpperCase()}</span>
+            {/if}
+            <span class="card-body">
+              <span class="name">{project.name}</span>
+              {#if project.description.trim() !== ""}
+                <span class="muted desc">{project.description}</span>
+              {:else}
+                <span class="muted desc empty">No description yet</span>
+              {/if}
+              <span class="tags">
+                {#if panelName(project.panel_id)}
+                  <span class="tag">{panelName(project.panel_id)}</span>
+                {/if}
+                {#if project.server_identifier}
+                  <span class="tag mono">{project.server_identifier}</span>
+                {/if}
+              </span>
+            </span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {:else}
+    <p class="empty muted">No projects yet. Import a server to get started.</p>
   {/if}
+</div>
+
+{#if showNew}
+  <NewProjectDialog
+    {teamId}
+    {panels}
+    existing={projects}
+    onCreated={created}
+    onClose={() => (showNew = false)}
+  />
 {/if}
 
 <style>

@@ -288,6 +288,16 @@
   const sym = { added: "+", modified: "~", deleted: "−" } as const;
 </script>
 
+{#if openDiff}
+  <FileDiff
+    path={openDiff.path}
+    oldText={openDiff.oldText}
+    newText={openDiff.newText}
+    loading={openDiff.loading}
+    error={openDiff.error}
+    onClose={() => (openDiff = null)}
+  />
+{:else}
 <div class="card">
   {#if loading && storageOk === null}
     <p class="muted small">Checking cloud storage…</p>
@@ -355,7 +365,7 @@
             </ul>
           {/if}
         {:else}
-          <p class="muted small">✓ All local changes are committed to the current Deploy.</p>
+          <p class="muted small">All local changes are committed to the current Deploy.</p>
         {/if}
       </div>
     {/if}
@@ -433,16 +443,6 @@
     </div>
   {/if}
 </div>
-
-{#if openDiff}
-  <FileDiff
-    path={openDiff.path}
-    oldText={openDiff.oldText}
-    newText={openDiff.newText}
-    loading={openDiff.loading}
-    error={openDiff.error}
-    onClose={() => (openDiff = null)}
-  />
 {/if}
 
 <style>

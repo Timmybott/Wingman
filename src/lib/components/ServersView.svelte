@@ -21,12 +21,14 @@
     panels,
     projects = [],
     focusServer = null,
+    onBack,
     onManage,
     onOpenProject,
   }: {
     panels: PanelInfo[];
     projects?: CloudProject[];
     focusServer?: { panelId: string; identifier: string } | null;
+    onBack?: () => void;
     onManage: () => void;
     onOpenProject?: (projectId: string) => void;
   } = $props();
@@ -197,11 +199,26 @@
   });
 </script>
 
+{#if openEntry}
+  {@const ck = keyOf(openEntry.panelId, openEntry.server.identifier)}
+  <ConsoleView
+    server={openEntry.server}
+    live={currentLive(ck)}
+    lines={consoles[ck] ?? []}
+    onSend={(command) => sendConsoleCommand(openEntry.panelId, openEntry.server.identifier, command)}
+    onClose={() => (openKey = null)}
+  />
+{:else}
 <div class="servers">
   <div class="head">
-    <div>
-      <h2>Servers</h2>
-      <p class="muted">Every server across your team's Pterodactyl panels — power, stats and console.</p>
+    <div class="head-left">
+      {#if onBack}
+        <button class="back ghost" onclick={onBack}>← Back</button>
+      {/if}
+      <div>
+        <h2>Servers</h2>
+        <p class="muted">Every server across your team's Pterodactyl panels — power, stats and console.</p>
+      </div>
     </div>
     <button class="ghost" onclick={onManage}>Manage panels</button>
   </div>
@@ -243,19 +260,19 @@
     {/each}
   {/if}
 </div>
-
-{#if openEntry}
-  {@const k = keyOf(openEntry.panelId, openEntry.server.identifier)}
-  <ConsoleView
-    server={openEntry.server}
-    live={currentLive(k)}
-    lines={consoles[k] ?? []}
-    onSend={(command) => sendConsoleCommand(openEntry.panelId, openEntry.server.identifier, command)}
-    onClose={() => (openKey = null)}
-  />
 {/if}
 
 <style>
+  .head-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .head-left .back {
+    flex-shrink: 0;
+  }
+
   .servers {
     max-width: 1100px;
     margin: 8px auto 0;
