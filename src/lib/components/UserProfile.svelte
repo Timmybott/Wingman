@@ -175,10 +175,10 @@
       </header>
 
       <div class="meta">
-        {#if profile.location}<span class="meta-item">📍 {profile.location}</span>{/if}
+        {#if profile.location}<span class="meta-item">{profile.location}</span>{/if}
         {#if profile.website && href(profile.website)}
           <a class="meta-item link" href={href(profile.website)} target="_blank" rel="noopener noreferrer">
-            🔗 {hostOf(profile.website)}
+            {hostOf(profile.website)}
           </a>
         {/if}
         <span class="meta-item muted">Joined {joined(profile.created_at)}</span>

@@ -187,13 +187,13 @@
       </header>
 
       <div class="meta">
-        {#if team.location}<span class="meta-item">📍 {team.location}</span>{/if}
+        {#if team.location}<span class="meta-item">{team.location}</span>{/if}
         {#if team.website && href(team.website)}
           <a class="meta-item link" href={href(team.website)} target="_blank" rel="noopener noreferrer">
-            🔗 {hostOf(team.website)}
+            {hostOf(team.website)}
           </a>
         {/if}
-        <span class="meta-item">👥 {members.length} {members.length === 1 ? "member" : "members"}</span>
+        <span class="meta-item">{members.length} {members.length === 1 ? "member" : "members"}</span>
         <span class="meta-item muted">Created {created(team.created_at)}</span>
       </div>
 

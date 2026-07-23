@@ -186,7 +186,7 @@
       <span class="muted node">{server.node}</span>
       {#if linkedProject && onOpenProject}
         <button class="proj-chip" onclick={() => onOpenProject(linkedProject.id)} title="Open the Feather project for this server">
-          📦 {linkedProject.name} ↗
+          {linkedProject.name} ↗
         </button>
       {/if}
     </div>
@@ -258,7 +258,7 @@
           disabled={deployRunning}
           title="Project settings"
         >
-          ⚙
+          Settings
         </button>
       {:else}
         <button class="primary deploy" onclick={onConfigureProject} title="Link a local project folder">
@@ -267,14 +267,14 @@
       {/if}
     {/if}
     {#if canStart}
-      <button onclick={() => power("start")} disabled={busy} title="Start server">▶</button>
+      <button onclick={() => power("start")} disabled={busy} title="Start server">Start</button>
     {:else}
       <button
         onclick={() => power("stop")}
         disabled={busy || !canStop}
         title="Stop server"
       >
-        ⏹
+        Stop
       </button>
     {/if}
     <button
@@ -282,7 +282,7 @@
       disabled={busy || !canStop}
       title="Restart server"
     >
-      ⟳
+      Restart
     </button>
     {#if showKill}
       <button class="kill" class:armed={killArmed} onclick={killClick} disabled={busy}>

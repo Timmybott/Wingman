@@ -116,7 +116,7 @@
       <p class="muted center">Loading issues…</p>
     {:else if visible.length === 0}
       <p class="muted center empty">
-        {filter === "open" ? "No open issues. 🎉" : "No closed issues yet."}
+        {filter === "open" ? "No open issues." : "No closed issues yet."}
       </p>
     {:else}
       <ul class="list">
@@ -132,7 +132,7 @@
               </span>
               {#if issue.comment_count > 0}
                 <span class="comments muted" title="{issue.comment_count} comments">
-                  💬 {issue.comment_count}
+                  {issue.comment_count} {issue.comment_count === 1 ? "comment" : "comments"}
                 </span>
               {/if}
             </button>

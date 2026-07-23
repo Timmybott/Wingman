@@ -248,7 +248,7 @@
       <div class="uncommitted" class:dirty={hasUncommitted}>
         {#if hasUncommitted}
           <div class="head">
-            <h4 class="u-title">⚠ Uncommitted local changes</h4>
+            <h4 class="u-title">Uncommitted local changes</h4>
             <span class="summary">
               <span class="added">+{uncommittedCounts.a}</span>
               <span class="modified">~{uncommittedCounts.m}</span>

@@ -316,7 +316,7 @@
       <div class="head-text">
         <h1>{project.name}</h1>
         <div class="subline">
-          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">👥 {teamName}</button>
+          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">{teamName}</button>
           {#if panelName}
             <span class="tag">{panelName}</span>
           {/if}
