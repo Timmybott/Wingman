@@ -2,7 +2,7 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
-    deployProject,
+    deployBundle,
     onDeployEvent,
     projectHistory,
     projectManifest,
@@ -12,9 +12,12 @@
   import {
     anonKey,
     currentBundle,
+    getCommitManifest,
+    listCommits,
     listDeploys,
     recordDeploy,
     releaseBundle,
+    serverManifest,
     sessionToken,
     setServerManifest,
     STORAGE_ENDPOINT,
@@ -22,7 +25,7 @@
     type DeployEntry,
     type DeployKind,
   } from "../cloud";
-  import type { DeployStep, ProjectConfig } from "../types";
+  import type { DeployStep, Manifest, ProjectConfig } from "../types";
   import CloudCommits from "./CloudCommits.svelte";
   import ProjectHistory from "./ProjectHistory.svelte";
 
@@ -67,6 +70,9 @@
   let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
+  // The in-flight bundle deploy's summary + the server state it produces (the
+  // newest commit's manifest), used to release the bundle once it lands.
+  let pendingDeploy: { summary: string | null; manifest: Manifest } | null = null;
   // An import is running; on completion the local folder mirrors the server, so
   // we record it as the diff baseline.
   let pullPending = false;
@@ -154,14 +160,20 @@
       if (s.step === "done") {
         let commit: string | null = null;
         let summary: string | null = null;
-        try {
-          const [head] = await projectHistory(config!, 1);
-          if (head) {
-            commit = head.short_id;
-            summary = head.summary;
+        if (kind === "deploy" && pendingDeploy) {
+          // A bundle deploy ships cloud commits, not a local git commit — label
+          // it with the newest commit's message.
+          summary = pendingDeploy.summary;
+        } else {
+          try {
+            const [head] = await projectHistory(config!, 1);
+            if (head) {
+              commit = head.short_id;
+              summary = head.summary;
+            }
+          } catch {
+            // history is a nicety
           }
-        } catch {
-          // history is a nicety
         }
         await recordDeploy({
           projectId: project.id,
@@ -171,13 +183,16 @@
           commitSummary: summary,
           files: s.files,
         });
-        // A successful deploy ships the current Deploy bundle: mark it released
-        // (recording the deployed state) so the diff resets and the next round
-        // of commits starts a fresh Deploy. Best effort — never fails the run.
-        if (kind === "deploy") await releaseCurrentBundle();
+        // A successful deploy shipped the current bundle: mark it released,
+        // recording the new server state (the newest commit's manifest) so the
+        // diff resets and a fresh Deploy opens. Best effort — never fails the run.
+        if (kind === "deploy" && pendingDeploy) {
+          await releaseCurrentBundle(pendingDeploy.manifest);
+        }
       } else if (s.step === "failed") {
         await recordDeploy({ projectId: project.id, kind, status: "failed", message: s.message });
       }
+      pendingDeploy = null;
       await loadDeploys();
     } catch (e) {
       console.error("could not record deploy:", e);
@@ -185,15 +200,13 @@
   }
 
   /**
-   * Mark the project's current Deploy bundle released, recording the manifest
-   * now on the server so future "local vs server" diffs are correct and a
-   * fresh Deploy opens for the next commits. Best effort: the files are already
-   * live, so bundle bookkeeping must never surface as a deploy failure.
+   * Mark the project's current Deploy bundle released, recording `manifest` as
+   * the state now on the server so future "local vs server" diffs are correct
+   * and a fresh Deploy opens for the next commits. Best effort: the files are
+   * already live, so bundle bookkeeping must never surface as a deploy failure.
    */
-  async function releaseCurrentBundle() {
-    if (!config) return;
+  async function releaseCurrentBundle(manifest: Manifest) {
     try {
-      const manifest = await projectManifest(config);
       await currentBundle(project.id); // ensure a pending bundle exists to release
       await releaseBundle(project.id, Object.keys(manifest).length, null, manifest);
       cloudRefresh += 1;
@@ -206,14 +219,30 @@
     if (!config) return;
     error = null;
     backupWarning = null;
-    currentKind = "deploy";
-    step = { step: "committing" };
     try {
-      await deployProject(config);
+      // A deploy ships only committed work: gather the current bundle's stored
+      // commits (oldest first) and apply their deltas over the server state.
+      const base = await serverManifest(project.id);
+      const b = await currentBundle(project.id);
+      const stored = (await listCommits(project.id, b.id)).filter((c) => c.stored).reverse();
+      if (stored.length === 0) {
+        error = "Nothing committed to deploy yet — commit your changes first.";
+        return;
+      }
+      const commits = await Promise.all(
+        stored.map(async (c) => ({ id: c.id, manifest: await getCommitManifest(c.id) })),
+      );
+      const newest = commits[commits.length - 1];
+      pendingDeploy = { summary: stored[stored.length - 1].message, manifest: newest.manifest };
+      currentKind = "deploy";
+      step = { step: "downloading", percent: 0 };
+      const token = await sessionToken();
+      await deployBundle(config, STORAGE_ENDPOINT, token, anonKey, project.id, base, commits);
     } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
       currentKind = null;
+      pendingDeploy = null;
       void record("deploy", failed);
     }
   }

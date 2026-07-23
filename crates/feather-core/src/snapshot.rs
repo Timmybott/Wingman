@@ -265,6 +265,49 @@ pub async fn upload_snapshot(
 ) -> Result<(usize, Manifest), Error> {
     let (bytes, manifest) = snapshot_zip(root)?;
     let files = manifest.len();
+    put_snapshot(
+        bytes, endpoint, token, anon_key, project_id, commit_id, kind,
+    )
+    .await?;
+    Ok((files, manifest))
+}
+
+/// Pack only what changed relative to `base` (a **commit delta**) and upload it
+/// to the storage backend. Returns the number of changed paths (added,
+/// modified and deleted) and the full resulting manifest of the working tree —
+/// the latter is recorded as the commit's state so a deploy can apply the
+/// bundle. See [`upload_snapshot`] for the auth model.
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_delta(
+    root: &Path,
+    base: &Manifest,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<(usize, Manifest), Error> {
+    let (bytes, resulting, deleted) = delta_zip(root, base)?;
+    // Changed paths = added/modified (in the zip) + deleted.
+    let changed = zip_entry_names(&bytes)?.len() + deleted.len();
+    put_snapshot(
+        bytes, endpoint, token, anon_key, project_id, commit_id, kind,
+    )
+    .await?;
+    Ok((changed, resulting))
+}
+
+/// POST a snapshot/delta zip to the storage backend through the Edge Function.
+async fn put_snapshot(
+    bytes: Vec<u8>,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<(), Error> {
     let mut url = url::Url::parse(endpoint).map_err(|e| Error::Deploy(e.to_string()))?;
     url.query_pairs_mut()
         .append_pair("action", "put")
@@ -285,7 +328,7 @@ pub async fn upload_snapshot(
             res.status().as_u16()
         )));
     }
-    Ok((files, manifest))
+    Ok(())
 }
 
 /// Download a commit/rollback snapshot (a zip) from the storage backend through

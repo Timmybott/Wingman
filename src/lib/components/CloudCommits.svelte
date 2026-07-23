@@ -4,7 +4,7 @@
     readLocalFile,
     readServerFile,
     snapshotFile,
-    uploadCommitSnapshot,
+    uploadCommitDelta,
   } from "../api";
   import {
     anonKey,
@@ -21,7 +21,7 @@
     type CloudProject,
     type DeployBundle,
   } from "../cloud";
-  import type { ChangeKind, Diff, ProjectConfig } from "../types";
+  import type { ChangeKind, Diff, Manifest, ProjectConfig } from "../types";
   import FileDiff from "./FileDiff.svelte";
 
   let {
@@ -43,6 +43,8 @@
   // deploy" already covers everything, so we don't show a second panel.
   let uncommittedDiff = $state<Diff | null>(null);
   let latestStoredCommitId = $state<string | null>(null);
+  // The state a new commit's delta is measured against (server ⊕ prior commits).
+  let accumulatedBase = $state<Manifest>({});
   let bundle = $state<DeployBundle | null>(null);
   let commits = $state<CloudCommit[]>([]);
   let loading = $state(true);
@@ -142,13 +144,16 @@
       diff = d;
       bundle = b;
       commits = await listCommits(project.id, b.id);
-      // Uncommitted changes = local vs the newest stored commit in this Deploy.
+      // The base a new commit's delta is measured against: the accumulated
+      // committed state = the newest stored commit's manifest, or the server
+      // state if nothing is committed yet. Uncommitted changes = local vs it.
       const latest = commits.find((c) => c.stored) ?? null;
       latestStoredCommitId = latest?.id ?? null;
       if (latest) {
-        const commitBase = await getCommitManifest(latest.id);
-        uncommittedDiff = await projectDiff(config, commitBase);
+        accumulatedBase = await getCommitManifest(latest.id);
+        uncommittedDiff = await projectDiff(config, accumulatedBase);
       } else {
+        accumulatedBase = base;
         uncommittedDiff = null;
       }
     } catch (e) {
@@ -166,8 +171,12 @@
     try {
       const created = await createCommit(project.id, message.trim());
       const token = await sessionToken();
-      const up = await uploadCommitSnapshot(
+      // Store only this commit's delta (vs the accumulated committed state); the
+      // returned manifest is the full resulting tree, recorded so a deploy can
+      // apply the whole bundle.
+      const up = await uploadCommitDelta(
         config,
+        accumulatedBase,
         STORAGE_ENDPOINT,
         token,
         anonKey,

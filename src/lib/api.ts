@@ -124,11 +124,6 @@ export function removeLocalProject(projectId: string, deleteFiles: boolean): Pro
  * this device's local folder), so it needs no local project store.
  */
 
-/** Start a deploy; progress arrives via onDeployEvent (keyed by project id). */
-export function deployProject(project: ProjectConfig): Promise<void> {
-  return invoke<void>("deploy_project", { project });
-}
-
 export function onDeployEvent(
   projectId: string,
   handler: (step: DeployStep) => void,
@@ -202,25 +197,59 @@ export function projectDiff(project: ProjectConfig, base: Manifest): Promise<Dif
 }
 
 /**
- * Pack the local folder into a snapshot zip and upload it to the storage
- * backend via the feather-storage Edge Function. The Rust side POSTs the bytes
- * with the caller's session token; the function derives the path from the ids.
+ * Upload this commit's delta: only what changed relative to `base` (the
+ * accumulated committed state). Returns the number of changed paths and the
+ * full resulting manifest, recorded as the commit's state so a deploy can apply
+ * the whole bundle.
  */
-export function uploadCommitSnapshot(
+export function uploadCommitDelta(
   project: ProjectConfig,
+  base: Manifest,
   endpoint: string,
   token: string,
   anonKey: string,
   projectId: string,
   commitId: string,
 ): Promise<SnapshotUpload> {
-  return invoke<SnapshotUpload>("upload_commit_snapshot", {
+  return invoke<SnapshotUpload>("upload_commit_delta", {
     project,
+    base,
     endpoint,
     token,
     anonKey,
     projectId,
     commitId,
+  });
+}
+
+/** One commit of the current Deploy bundle, passed to deployBundle oldest first. */
+export interface BundleCommitArg {
+  id: string;
+  manifest: Manifest;
+}
+
+/**
+ * Deploy the current bundle: the Rust side downloads each commit's delta and
+ * applies them over `base` (the current server state) — nothing uncommitted is
+ * shipped. Progress arrives on the deploy-event channel.
+ */
+export function deployBundle(
+  project: ProjectConfig,
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  base: Manifest,
+  commits: BundleCommitArg[],
+): Promise<void> {
+  return invoke<void>("deploy_bundle", {
+    project,
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    base,
+    commits,
   });
 }
 

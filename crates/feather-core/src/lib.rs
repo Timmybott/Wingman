@@ -25,7 +25,8 @@ pub use error::Error;
 pub use git::{ChangedFile, CommitInfo, RepoStatus};
 pub use snapshot::{
     delta_zip, diff_against, diff_manifests, manifest_of, materialize_deltas, snapshot_file,
-    snapshot_zip, upload_snapshot, ChangeKind, CommitDelta, Diff, FileChange, Manifest,
+    snapshot_zip, upload_delta, upload_snapshot, ChangeKind, CommitDelta, Diff, FileChange,
+    Manifest,
 };
 pub use sync::{read_remote_state, start_pull, PullMode, RemoteState};
 pub use ws::{Outgoing, ServerEvent, ServerSocket};

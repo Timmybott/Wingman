@@ -2,7 +2,10 @@
 //! strings, so every command maps core errors with `to_string()`.
 
 use crate::AppState;
-use feather_core::deploy::{start_deploy, start_rollback, start_snapshot_rollback, DeployStep};
+use feather_core::deploy::{
+    start_bundle_deploy, start_deploy, start_rollback, start_snapshot_rollback, BundleCommit,
+    DeployStep,
+};
 use feather_core::git;
 use feather_core::models::{FileEntry, PowerSignal, Server, ServerStats};
 use feather_core::snapshot;
@@ -306,6 +309,55 @@ pub async fn deploy_project(
     claim_engine_slot(&state, &project_id).await?;
     let handle = start_deploy(client, state.store.clone(), project.clone());
     forward_engine_events(app, project, project_id, handle, "Deploy");
+    Ok(())
+}
+
+/// A commit of the current Deploy bundle, passed from the frontend oldest
+/// first: its storage id and the full manifest of the committed tree after it.
+#[derive(serde::Deserialize)]
+pub struct BundleCommitArg {
+    pub id: String,
+    pub manifest: snapshot::Manifest,
+}
+
+/// Deploy the current bundle: apply its commits' deltas to the server (over the
+/// `base` server state) and nothing else. Uncommitted local edits are never
+/// shipped. Shares the running-guard and event channel with deploy_project.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn deploy_bundle(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    base: snapshot::Manifest,
+    commits: Vec<BundleCommitArg>,
+) -> CmdResult<()> {
+    let client = client_for(&state, &project.panel_id)?;
+    let engine_id = project.id.clone();
+    claim_engine_slot(&state, &engine_id).await?;
+    let commits = commits
+        .into_iter()
+        .map(|c| BundleCommit {
+            id: c.id,
+            manifest: c.manifest,
+        })
+        .collect();
+    let handle = start_bundle_deploy(
+        client,
+        state.store.clone(),
+        project.clone(),
+        endpoint,
+        token,
+        anon_key,
+        project_id,
+        base,
+        commits,
+    );
+    forward_engine_events(app, project, engine_id, handle, "Deploy");
     Ok(())
 }
 
@@ -661,6 +713,36 @@ pub async fn upload_commit_snapshot(
 ) -> CmdResult<SnapshotUpload> {
     let (files, manifest) = snapshot::upload_snapshot(
         &project.local_path,
+        &endpoint,
+        &token,
+        &anon_key,
+        &project_id,
+        &commit_id,
+        "commit",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(SnapshotUpload { files, manifest })
+}
+
+/// Pack only what changed relative to `base` (the accumulated committed state)
+/// and upload it as this commit's delta. Returns the number of changed paths
+/// and the full resulting manifest, which is recorded as the commit's state so
+/// a deploy can apply the whole bundle.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_commit_delta(
+    project: ProjectConfig,
+    base: snapshot::Manifest,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    commit_id: String,
+) -> CmdResult<SnapshotUpload> {
+    let (files, manifest) = snapshot::upload_delta(
+        &project.local_path,
+        &base,
         &endpoint,
         &token,
         &anon_key,
