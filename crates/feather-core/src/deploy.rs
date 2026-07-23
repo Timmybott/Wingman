@@ -165,10 +165,10 @@ async fn run_deploy(
     run_pipeline(client, store, project, &local, commit, tx).await
 }
 
-/// Roll back to a cloud commit's snapshot: download it from the storage
-/// backend, extract it into a temp directory and deploy from there. The local
-/// folder is never touched, so a teammate can roll the server back to any
-/// commit even without that commit's files locally.
+/// Roll the server back to a stored full snapshot (a released deploy, `kind` =
+/// "rollback"): download it from the storage backend, extract it into a temp
+/// directory and deploy from there. The local folder is never touched, so any
+/// teammate can restore a past deploy even without those files locally.
 #[allow(clippy::too_many_arguments)]
 pub fn start_snapshot_rollback(
     client: PanelClient,
@@ -178,7 +178,8 @@ pub fn start_snapshot_rollback(
     token: String,
     anon_key: String,
     project_id: String,
-    commit_id: String,
+    kind: String,
+    snapshot_id: String,
 ) -> DeployHandle {
     spawn_engine(move |tx| async move {
         run_snapshot_rollback(
@@ -189,7 +190,8 @@ pub fn start_snapshot_rollback(
             &token,
             &anon_key,
             &project_id,
-            &commit_id,
+            &kind,
+            &snapshot_id,
             &tx,
         )
         .await
@@ -205,12 +207,18 @@ async fn run_snapshot_rollback(
     token: &str,
     anon_key: &str,
     project_id: &str,
-    commit_id: &str,
+    kind: &str,
+    snapshot_id: &str,
     tx: &mpsc::Sender<DeployStep>,
 ) -> Result<(usize, usize), Error> {
     let _ = tx.send(DeployStep::Downloading { percent: 0 }).await;
     let bytes = crate::snapshot::download_snapshot(
-        endpoint, token, anon_key, project_id, commit_id, "commit",
+        endpoint,
+        token,
+        anon_key,
+        project_id,
+        snapshot_id,
+        kind,
     )
     .await?;
 
@@ -229,7 +237,7 @@ async fn run_snapshot_rollback(
         store,
         project,
         temp.path(),
-        Some(commit_id.to_string()),
+        Some(snapshot_id.to_string()),
         tx,
     )
     .await
@@ -443,10 +451,21 @@ pub struct BundleCommit {
     pub manifest: crate::snapshot::Manifest,
 }
 
+/// Storage context for snapshotting the deployed state as a rollback point.
+struct SnapshotCtx {
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    /// The bundle being deployed — the rollback snapshot is keyed by its id.
+    bundle_id: String,
+}
+
 /// Deploy the current bundle: apply the accumulated commit deltas to the server
 /// and nothing else. A deploy introduces no changes of its own — uncommitted
 /// local edits are never shipped, and a member without a local folder can
-/// deploy just the same.
+/// deploy just the same. `bundle_id` keys the full-tree rollback snapshot taken
+/// once the new state is live.
 #[allow(clippy::too_many_arguments)]
 pub fn start_bundle_deploy(
     client: PanelClient,
@@ -456,6 +475,7 @@ pub fn start_bundle_deploy(
     token: String,
     anon_key: String,
     project_id: String,
+    bundle_id: String,
     base: crate::snapshot::Manifest,
     commits: Vec<BundleCommit>,
 ) -> DeployHandle {
@@ -468,6 +488,7 @@ pub fn start_bundle_deploy(
             &token,
             &anon_key,
             &project_id,
+            &bundle_id,
             base,
             commits,
             &tx,
@@ -485,6 +506,7 @@ async fn run_bundle_deploy(
     token: &str,
     anon_key: &str,
     project_id: &str,
+    bundle_id: &str,
     base: crate::snapshot::Manifest,
     commits: Vec<BundleCommit>,
     tx: &mpsc::Sender<DeployStep>,
@@ -518,7 +540,24 @@ async fn run_bundle_deploy(
     }
 
     let commit_id = commits.last().map(|c| c.id.clone());
-    apply_bundle(client, store, project, base, deltas, commit_id, tx).await
+    let snapshot = SnapshotCtx {
+        endpoint: endpoint.to_string(),
+        token: token.to_string(),
+        anon_key: anon_key.to_string(),
+        project_id: project_id.to_string(),
+        bundle_id: bundle_id.to_string(),
+    };
+    apply_bundle(
+        client,
+        store,
+        project,
+        base,
+        deltas,
+        commit_id,
+        Some(&snapshot),
+        tx,
+    )
+    .await
 }
 
 /// Apply already-fetched commit deltas to the server: overlay them onto the
@@ -534,10 +573,14 @@ pub fn start_apply_bundle(
     commit_id: Option<String>,
 ) -> DeployHandle {
     spawn_engine(move |tx| async move {
-        apply_bundle(&client, &store, &project, base, deltas, commit_id, &tx).await
+        apply_bundle(
+            &client, &store, &project, base, deltas, commit_id, None, &tx,
+        )
+        .await
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn apply_bundle(
     client: &PanelClient,
     store: &ConfigStore,
@@ -545,6 +588,7 @@ async fn apply_bundle(
     base: crate::snapshot::Manifest,
     deltas: Vec<crate::snapshot::CommitDelta>,
     commit_id: Option<String>,
+    snapshot: Option<&SnapshotCtx>,
     tx: &mpsc::Sender<DeployStep>,
 ) -> Result<(usize, usize), Error> {
     let root = normalize_target_dir(&project.target_dir)?;
@@ -598,6 +642,33 @@ async fn apply_bundle(
         client
             .delete_files(&project.server_identifier, &root, &net_deleted)
             .await?;
+    }
+
+    // Snapshot the full deployed tree as a rollback point (best effort). The
+    // server now holds the new state, so download it and store it keyed by the
+    // bundle id — rollback later restores this deploy from it. A failure here
+    // (e.g. a very large tree) must never fail the deploy itself.
+    if let Some(ctx) = snapshot {
+        if let Ok(temp) = tempfile::tempdir() {
+            match crate::sync::download_server_tree(client, project, temp.path()).await {
+                Ok(_) => {
+                    if let Err(e) = crate::snapshot::upload_snapshot(
+                        temp.path(),
+                        &ctx.endpoint,
+                        &ctx.token,
+                        &ctx.anon_key,
+                        &ctx.project_id,
+                        &ctx.bundle_id,
+                        "rollback",
+                    )
+                    .await
+                    {
+                        eprintln!("rollback snapshot skipped: {e}");
+                    }
+                }
+                Err(e) => eprintln!("rollback snapshot skipped: {e}"),
+            }
+        }
     }
 
     // Record the new full server state so future diffs/baselines are correct

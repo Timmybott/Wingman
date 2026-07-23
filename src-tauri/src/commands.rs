@@ -333,6 +333,7 @@ pub async fn deploy_bundle(
     token: String,
     anon_key: String,
     project_id: String,
+    bundle_id: String,
     base: snapshot::Manifest,
     commits: Vec<BundleCommitArg>,
 ) -> CmdResult<()> {
@@ -354,6 +355,7 @@ pub async fn deploy_bundle(
         token,
         anon_key,
         project_id,
+        bundle_id,
         base,
         commits,
     );
@@ -378,9 +380,10 @@ pub async fn rollback_project(
     Ok(())
 }
 
-/// Roll the server back to a cloud commit: download that commit's snapshot
-/// from the storage backend and deploy it. Shares the running-guard and event
-/// channel with deploy_project; the local folder is not touched.
+/// Roll the server back to a stored full snapshot (a past deploy, `kind` =
+/// "rollback", `snapshot_id` = its bundle id): download it from the storage
+/// backend and deploy it. Shares the running-guard and event channel with
+/// deploy_bundle; the local folder is not touched.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn rollback_to_snapshot(
@@ -391,7 +394,8 @@ pub async fn rollback_to_snapshot(
     token: String,
     anon_key: String,
     project_id: String,
-    commit_id: String,
+    kind: String,
+    snapshot_id: String,
 ) -> CmdResult<()> {
     let client = client_for(&state, &project.panel_id)?;
     let engine_id = project.id.clone();
@@ -404,7 +408,8 @@ pub async fn rollback_to_snapshot(
         token,
         anon_key,
         project_id,
-        commit_id,
+        kind,
+        snapshot_id,
     );
     forward_engine_events(app, project, engine_id, handle, "Rollback");
     Ok(())

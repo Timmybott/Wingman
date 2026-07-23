@@ -22,7 +22,8 @@
     focusDeployAt = null,
   }: {
     project: CloudProject;
-    onRollback: (commitId: string) => void;
+    /** Restore a past deploy, identified by its bundle id. */
+    onRollback: (bundleId: string) => void;
     onClose: () => void;
     /** ISO timestamp of a deploy to open directly (matched to its bundle). */
     focusDeployAt?: string | null;
@@ -283,14 +284,6 @@
         {actor(asCommit.author_name)} · {when(asCommit.created_at)}
         {#if asCommit.files_count !== null} · {asCommit.files_count} files{/if}
       </p>
-      <button
-        class="rollback"
-        class:armed
-        onclick={() => rollbackClick(asCommit.id)}
-        title="Roll the server back to this commit's snapshot"
-      >
-        {armed ? "Sure? Deploy this commit" : "Rollback to this commit"}
-      </button>
       {#if commitIssues.length > 0}
         <h5>Fixes</h5>
         {@render issueList(commitIssues)}
@@ -304,6 +297,14 @@
         {when(asBundle.released_at ?? asBundle.created_at)}
         {#if asBundle.files_count !== null} · {asBundle.files_count} files{/if}
       </p>
+      <button
+        class="rollback"
+        class:armed
+        onclick={() => rollbackClick(asBundle.id)}
+        title="Roll the server back to this deploy's snapshot"
+      >
+        {armed ? "Sure? Restore this deploy" : "Rollback to this deploy"}
+      </button>
 
       <h5>Commits in this deploy</h5>
       {#if detailCommits.length === 0}

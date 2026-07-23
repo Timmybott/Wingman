@@ -13,6 +13,7 @@
   import {
     anonKey,
     currentBundle,
+    getBundleManifest,
     getCommitManifest,
     listCommits,
     listDeploys,
@@ -74,6 +75,9 @@
   // The in-flight bundle deploy's summary + the server state it produces (the
   // newest commit's manifest), used to release the bundle once it lands.
   let pendingDeploy: { summary: string | null; manifest: Manifest } | null = null;
+  // The manifest of the deploy being rolled back to, used to reset the server
+  // baseline once the rollback lands.
+  let pendingRollbackManifest: Manifest | null = null;
   // An import is running; on completion the local folder mirrors the server, so
   // we record it as the diff baseline.
   let pullPending = false;
@@ -235,11 +239,20 @@
         // diff resets and a fresh Deploy opens. Best effort — never fails the run.
         if (kind === "deploy" && pendingDeploy) {
           await releaseCurrentBundle(pendingDeploy.manifest);
+        } else if (kind === "rollback" && pendingRollbackManifest) {
+          // The server now holds the rolled-back deploy — make it the baseline.
+          try {
+            await setServerManifest(project.id, pendingRollbackManifest);
+            cloudRefresh += 1;
+          } catch (e) {
+            console.error("rollback baseline skipped:", e);
+          }
         }
       } else if (s.step === "failed") {
         await recordDeploy({ projectId: project.id, kind, status: "failed", message: s.message });
       }
       pendingDeploy = null;
+      pendingRollbackManifest = null;
       await loadDeploys();
     } catch (e) {
       console.error("could not record deploy:", e);
@@ -284,7 +297,7 @@
       currentKind = "deploy";
       step = { step: "downloading", percent: 0 };
       const token = await sessionToken();
-      await deployBundle(config, STORAGE_ENDPOINT, token, anonKey, project.id, base, commits);
+      await deployBundle(config, STORAGE_ENDPOINT, token, anonKey, project.id, b.id, base, commits);
     } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
@@ -308,7 +321,8 @@
     }
   }
 
-  async function onRollback(commitId: string) {
+  /** Restore a past deploy from its full snapshot (keyed by its bundle id). */
+  async function onRollback(bundleId: string) {
     if (!config) return;
     showHistory = false;
     error = null;
@@ -316,12 +330,15 @@
     currentKind = "rollback";
     step = { step: "downloading", percent: 0 };
     try {
+      // Remember the deploy's state so we can reset the server baseline to it.
+      pendingRollbackManifest = await getBundleManifest(bundleId).catch(() => null);
       const token = await sessionToken();
-      await rollbackToSnapshot(config, STORAGE_ENDPOINT, token, anonKey, project.id, commitId);
+      await rollbackToSnapshot(config, STORAGE_ENDPOINT, token, anonKey, project.id, "rollback", bundleId);
     } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
       currentKind = null;
+      pendingRollbackManifest = null;
       void record("rollback", failed);
     }
   }

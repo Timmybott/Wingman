@@ -147,7 +147,8 @@ export function rollbackToSnapshot(
   token: string,
   anonKey: string,
   projectId: string,
-  commitId: string,
+  kind: string,
+  snapshotId: string,
 ): Promise<void> {
   return invoke<void>("rollback_to_snapshot", {
     project,
@@ -155,7 +156,8 @@ export function rollbackToSnapshot(
     token,
     anonKey,
     projectId,
-    commitId,
+    kind,
+    snapshotId,
   });
 }
 
@@ -239,6 +241,7 @@ export function deployBundle(
   token: string,
   anonKey: string,
   projectId: string,
+  bundleId: string,
   base: Manifest,
   commits: BundleCommitArg[],
 ): Promise<void> {
@@ -248,6 +251,7 @@ export function deployBundle(
     token,
     anonKey,
     projectId,
+    bundleId,
     base,
     commits,
   });
