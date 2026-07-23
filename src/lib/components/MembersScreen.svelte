@@ -21,7 +21,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  let email = $state("");
+  let identifier = $state("");
   let inviting = $state(false);
   let info = $state<string | null>(null);
   let removingId = $state<string | null>(null);
@@ -48,14 +48,14 @@
 
   async function invite(event: SubmitEvent) {
     event.preventDefault();
-    if (email.trim() === "") return;
+    if (identifier.trim() === "") return;
     inviting = true;
     error = null;
     info = null;
     try {
-      await inviteMember(teamId, email);
-      info = `${email.trim()} was added to the team.`;
-      email = "";
+      await inviteMember(teamId, identifier);
+      info = `${identifier.trim()} was added to the team.`;
+      identifier = "";
       await load();
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
@@ -107,18 +107,18 @@
   {#if isAdmin}
     <form onsubmit={invite}>
       <input
-        type="email"
-        bind:value={email}
-        placeholder="teammate@email.com"
+        type="text"
+        bind:value={identifier}
+        placeholder="Email or username"
         autocomplete="off"
         spellcheck="false"
         disabled={inviting}
       />
-      <button type="submit" class="primary" disabled={inviting || email.trim() === ""}>
+      <button type="submit" class="primary" disabled={inviting || identifier.trim() === ""}>
         {inviting ? "Adding…" : "Add member"}
       </button>
     </form>
-    <p class="hint muted">They need a Feather account with that email already.</p>
+    <p class="hint muted">Enter a teammate's email address or their username — they need a Feather account already.</p>
   {/if}
 
   {#if error}<p class="error">{error}</p>{:else if info}<p class="ok">{info}</p>{/if}

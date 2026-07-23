@@ -310,11 +310,11 @@ export async function listMembers(teamId: string): Promise<TeamMember[]> {
   });
 }
 
-/** Add an existing Feather account to the team by email (admins only). */
-export async function inviteMember(teamId: string, email: string): Promise<void> {
+/** Add an existing Feather account to the team by email or username (admins only). */
+export async function inviteMember(teamId: string, identifier: string): Promise<void> {
   const { error } = await supabase.rpc("invite_member", {
     p_team: teamId,
-    p_email: email.trim(),
+    p_email: identifier.trim(),
   });
   if (error) throw new Error(error.message);
 }
