@@ -393,6 +393,26 @@ export async function updateMyProfile(fields: {
 }
 
 /**
+ * Upload an avatar/logo image to the public `images` bucket and return its
+ * public URL (stored in avatar_url / logo_url). `owner` scopes the path
+ * (user/team/project id) so files don't collide. Requires migration `0014`.
+ */
+export async function uploadImage(
+  kind: "avatar" | "logo",
+  owner: string,
+  file: File,
+): Promise<string> {
+  const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const path = `${kind}/${owner}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("images").upload(path, file, {
+    upsert: true,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message);
+  return supabase.storage.from("images").getPublicUrl(path).data.publicUrl;
+}
+
+/**
  * Teams a user belongs to that the viewer can see (Row-Level Security limits
  * this to teams the viewer is also on — you see shared teams).
  */

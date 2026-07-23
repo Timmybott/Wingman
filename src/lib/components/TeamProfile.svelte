@@ -9,6 +9,7 @@
     type Team,
     type TeamMember,
   } from "../cloud";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
 
@@ -154,8 +155,8 @@
           </div>
         </div>
         <div class="field">
-          <label for="t-logo">Logo image URL</label>
-          <input id="t-logo" bind:value={logoUrl} placeholder="https://…/logo.png" autocomplete="off" spellcheck="false" />
+          <span class="field-label">Logo</span>
+          <ImagePicker bind:value={logoUrl} kind="logo" owner={teamId} shape="square" />
         </div>
         <div class="field">
           <label for="t-desc">README <span class="muted">(Markdown)</span></label>

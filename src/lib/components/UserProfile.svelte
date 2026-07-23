@@ -9,6 +9,7 @@
     type Team,
     type UserProfile,
   } from "../cloud";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
 
@@ -144,8 +145,8 @@
           </div>
         </div>
         <div class="field">
-          <label for="p-avatar">Avatar image URL</label>
-          <input id="p-avatar" bind:value={avatarUrl} placeholder="https://…/me.png" autocomplete="off" spellcheck="false" />
+          <span class="field-label">Avatar</span>
+          <ImagePicker bind:value={avatarUrl} kind="avatar" owner={userId} shape="circle" />
         </div>
         <div class="field">
           <label for="p-bio">README <span class="muted">(Markdown)</span></label>

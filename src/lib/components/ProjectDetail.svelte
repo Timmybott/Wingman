@@ -23,6 +23,7 @@
   import DeployPanel from "./DeployPanel.svelte";
   import FileBrowser from "./FileBrowser.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
   import MarkdownEditor from "./MarkdownEditor.svelte";
 
@@ -502,8 +503,8 @@
         <MarkdownEditor id="s-desc" bind:value={description} rows={4} />
       </div>
       <div class="field">
-        <label for="s-logo">Logo image URL <span class="muted">(optional)</span></label>
-        <input id="s-logo" bind:value={logoUrl} placeholder="https://…/logo.png" spellcheck="false" autocomplete="off" />
+        <span class="field-label">Logo <span class="muted">(optional)</span></span>
+        <ImagePicker bind:value={logoUrl} kind="logo" owner={project.id} shape="square" />
       </div>
 
       <div class="two">
