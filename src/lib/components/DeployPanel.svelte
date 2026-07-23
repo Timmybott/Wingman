@@ -2,6 +2,7 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
+    checkRemoteDeploy,
     deployBundle,
     onDeployEvent,
     projectHistory,
@@ -76,6 +77,9 @@
   // An import is running; on completion the local folder mirrors the server, so
   // we record it as the diff baseline.
   let pullPending = false;
+  // A teammate deployed a newer version but our working tree is dirty, so we
+  // can't auto-sync — shown as a banner until the tree is clean.
+  let syncBlocked = $state(false);
 
   const running = $derived(step !== null && step.step !== "done" && step.step !== "failed");
 
@@ -99,6 +103,7 @@
   });
 
   let unlisten: UnlistenFn | undefined;
+  let syncTimer: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
     void loadDeploys();
     onDeployEvent(project.id, handleStep).then((u) => {
@@ -108,9 +113,19 @@
       if (autoImport && config) {
         onImported?.();
         void importFiles();
+      } else {
+        // Only check now when nothing else is starting an engine run, so the
+        // sync pull can't race the auto-import for the engine slot.
+        void checkSync();
       }
+      // Keep this device in sync with teammates' deploys: poll the server's
+      // deploy marker and pull the new state into the local folder when clean.
+      syncTimer = setInterval(() => void checkSync(), 30_000);
     });
-    return () => unlisten?.();
+    return () => {
+      unlisten?.();
+      if (syncTimer) clearInterval(syncTimer);
+    };
   });
 
   async function loadDeploys() {
@@ -118,6 +133,35 @@
       deploys = await listDeploys(project.id);
     } catch {
       // timeline is best effort
+    }
+  }
+
+  /**
+   * Keep the local folder current with teammates' deploys. If the server
+   * announces a deploy newer than this device's record, pull it in — but only
+   * when the working tree is clean, so uncommitted work is never overwritten
+   * (a dirty tree shows a banner instead).
+   */
+  async function checkSync() {
+    const cfg = config;
+    if (!cfg || running) return;
+    try {
+      const info = await checkRemoteDeploy(cfg);
+      if (!info.newer) {
+        syncBlocked = false;
+        return;
+      }
+      if (info.dirty) {
+        syncBlocked = true;
+        return;
+      }
+      syncBlocked = false;
+      currentKind = null; // a sync is not recorded as a deploy…
+      pullPending = true; // …but it does make the local folder mirror the server
+      step = { step: "downloading", percent: 0 };
+      await pullProject(cfg, "sync");
+    } catch {
+      // best effort — never disrupt the tab
     }
   }
 
@@ -135,10 +179,13 @@
       const kind = currentKind;
       currentKind = null;
       if (kind) void record(kind, s);
-      // After importing the server's files, the local folder mirrors the
-      // server — record that as the diff baseline so the Deploy tab doesn't
-      // show every file as changed.
-      if (s.step === "done" && pullPending) void setImportBaseline();
+      // After importing/syncing the server's files, the local folder mirrors
+      // the server — record that as the diff baseline so the Deploy tab doesn't
+      // show every file as changed, and refresh the shared timeline.
+      if (s.step === "done" && pullPending) {
+        void setImportBaseline();
+        void loadDeploys();
+      }
       pullPending = false;
     }
   }
@@ -299,12 +346,21 @@
   {#if !config}
     <div class="card notice">
       <p>
-        No local folder on this device. Add one under <strong>Overview → Local
+        No local folder on this device. Add one under <strong>Settings → Local
         folder</strong> to deploy and commit from here. You can still see the
         shared deploy history below.
       </p>
     </div>
   {:else}
+    {#if syncBlocked}
+      <div class="card sync-banner">
+        <p>
+          ⬇ A teammate shipped a newer deploy. Commit or discard your local
+          changes and it will sync into this folder automatically.
+        </p>
+      </div>
+    {/if}
+
     <CloudCommits {project} {config} refresh={cloudRefresh} onCommitted={loadDeploys} />
 
     <div class="card actions-card">
@@ -392,6 +448,17 @@
     border-radius: 10px;
     padding: 16px;
     margin-bottom: 22px;
+  }
+
+  .sync-banner {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  }
+
+  .sync-banner p {
+    margin: 0;
+    line-height: 1.5;
+    font-size: 13px;
   }
 
   .notice p {
