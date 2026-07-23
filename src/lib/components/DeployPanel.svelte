@@ -2,7 +2,8 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
-    deployProject,
+    checkRemoteDeploy,
+    deployBundle,
     onDeployEvent,
     projectHistory,
     projectManifest,
@@ -12,9 +13,13 @@
   import {
     anonKey,
     currentBundle,
+    getBundleManifest,
+    getCommitManifest,
+    listCommits,
     listDeploys,
     recordDeploy,
     releaseBundle,
+    serverManifest,
     sessionToken,
     setServerManifest,
     STORAGE_ENDPOINT,
@@ -22,7 +27,7 @@
     type DeployEntry,
     type DeployKind,
   } from "../cloud";
-  import type { DeployStep, ProjectConfig } from "../types";
+  import type { DeployStep, Manifest, ProjectConfig } from "../types";
   import CloudCommits from "./CloudCommits.svelte";
   import ProjectHistory from "./ProjectHistory.svelte";
 
@@ -67,9 +72,18 @@
   let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
+  // The in-flight bundle deploy's summary + the server state it produces (the
+  // newest commit's manifest), used to release the bundle once it lands.
+  let pendingDeploy: { summary: string | null; manifest: Manifest } | null = null;
+  // The manifest of the deploy being rolled back to, used to reset the server
+  // baseline once the rollback lands.
+  let pendingRollbackManifest: Manifest | null = null;
   // An import is running; on completion the local folder mirrors the server, so
   // we record it as the diff baseline.
   let pullPending = false;
+  // A teammate deployed a newer version but our working tree is dirty, so we
+  // can't auto-sync — shown as a banner until the tree is clean.
+  let syncBlocked = $state(false);
 
   const running = $derived(step !== null && step.step !== "done" && step.step !== "failed");
 
@@ -93,6 +107,7 @@
   });
 
   let unlisten: UnlistenFn | undefined;
+  let syncTimer: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
     void loadDeploys();
     onDeployEvent(project.id, handleStep).then((u) => {
@@ -102,9 +117,19 @@
       if (autoImport && config) {
         onImported?.();
         void importFiles();
+      } else {
+        // Only check now when nothing else is starting an engine run, so the
+        // sync pull can't race the auto-import for the engine slot.
+        void checkSync();
       }
+      // Keep this device in sync with teammates' deploys: poll the server's
+      // deploy marker and pull the new state into the local folder when clean.
+      syncTimer = setInterval(() => void checkSync(), 30_000);
     });
-    return () => unlisten?.();
+    return () => {
+      unlisten?.();
+      if (syncTimer) clearInterval(syncTimer);
+    };
   });
 
   async function loadDeploys() {
@@ -112,6 +137,35 @@
       deploys = await listDeploys(project.id);
     } catch {
       // timeline is best effort
+    }
+  }
+
+  /**
+   * Keep the local folder current with teammates' deploys. If the server
+   * announces a deploy newer than this device's record, pull it in — but only
+   * when the working tree is clean, so uncommitted work is never overwritten
+   * (a dirty tree shows a banner instead).
+   */
+  async function checkSync() {
+    const cfg = config;
+    if (!cfg || running) return;
+    try {
+      const info = await checkRemoteDeploy(cfg);
+      if (!info.newer) {
+        syncBlocked = false;
+        return;
+      }
+      if (info.dirty) {
+        syncBlocked = true;
+        return;
+      }
+      syncBlocked = false;
+      currentKind = null; // a sync is not recorded as a deploy…
+      pullPending = true; // …but it does make the local folder mirror the server
+      step = { step: "downloading", percent: 0 };
+      await pullProject(cfg, "sync");
+    } catch {
+      // best effort — never disrupt the tab
     }
   }
 
@@ -129,10 +183,13 @@
       const kind = currentKind;
       currentKind = null;
       if (kind) void record(kind, s);
-      // After importing the server's files, the local folder mirrors the
-      // server — record that as the diff baseline so the Deploy tab doesn't
-      // show every file as changed.
-      if (s.step === "done" && pullPending) void setImportBaseline();
+      // After importing/syncing the server's files, the local folder mirrors
+      // the server — record that as the diff baseline so the Deploy tab doesn't
+      // show every file as changed, and refresh the shared timeline.
+      if (s.step === "done" && pullPending) {
+        void setImportBaseline();
+        void loadDeploys();
+      }
       pullPending = false;
     }
   }
@@ -154,14 +211,20 @@
       if (s.step === "done") {
         let commit: string | null = null;
         let summary: string | null = null;
-        try {
-          const [head] = await projectHistory(config!, 1);
-          if (head) {
-            commit = head.short_id;
-            summary = head.summary;
+        if (kind === "deploy" && pendingDeploy) {
+          // A bundle deploy ships cloud commits, not a local git commit — label
+          // it with the newest commit's message.
+          summary = pendingDeploy.summary;
+        } else {
+          try {
+            const [head] = await projectHistory(config!, 1);
+            if (head) {
+              commit = head.short_id;
+              summary = head.summary;
+            }
+          } catch {
+            // history is a nicety
           }
-        } catch {
-          // history is a nicety
         }
         await recordDeploy({
           projectId: project.id,
@@ -171,13 +234,25 @@
           commitSummary: summary,
           files: s.files,
         });
-        // A successful deploy ships the current Deploy bundle: mark it released
-        // (recording the deployed state) so the diff resets and the next round
-        // of commits starts a fresh Deploy. Best effort — never fails the run.
-        if (kind === "deploy") await releaseCurrentBundle();
+        // A successful deploy shipped the current bundle: mark it released,
+        // recording the new server state (the newest commit's manifest) so the
+        // diff resets and a fresh Deploy opens. Best effort — never fails the run.
+        if (kind === "deploy" && pendingDeploy) {
+          await releaseCurrentBundle(pendingDeploy.manifest);
+        } else if (kind === "rollback" && pendingRollbackManifest) {
+          // The server now holds the rolled-back deploy — make it the baseline.
+          try {
+            await setServerManifest(project.id, pendingRollbackManifest);
+            cloudRefresh += 1;
+          } catch (e) {
+            console.error("rollback baseline skipped:", e);
+          }
+        }
       } else if (s.step === "failed") {
         await recordDeploy({ projectId: project.id, kind, status: "failed", message: s.message });
       }
+      pendingDeploy = null;
+      pendingRollbackManifest = null;
       await loadDeploys();
     } catch (e) {
       console.error("could not record deploy:", e);
@@ -185,15 +260,13 @@
   }
 
   /**
-   * Mark the project's current Deploy bundle released, recording the manifest
-   * now on the server so future "local vs server" diffs are correct and a
-   * fresh Deploy opens for the next commits. Best effort: the files are already
-   * live, so bundle bookkeeping must never surface as a deploy failure.
+   * Mark the project's current Deploy bundle released, recording `manifest` as
+   * the state now on the server so future "local vs server" diffs are correct
+   * and a fresh Deploy opens for the next commits. Best effort: the files are
+   * already live, so bundle bookkeeping must never surface as a deploy failure.
    */
-  async function releaseCurrentBundle() {
-    if (!config) return;
+  async function releaseCurrentBundle(manifest: Manifest) {
     try {
-      const manifest = await projectManifest(config);
       await currentBundle(project.id); // ensure a pending bundle exists to release
       await releaseBundle(project.id, Object.keys(manifest).length, null, manifest);
       cloudRefresh += 1;
@@ -206,14 +279,30 @@
     if (!config) return;
     error = null;
     backupWarning = null;
-    currentKind = "deploy";
-    step = { step: "committing" };
     try {
-      await deployProject(config);
+      // A deploy ships only committed work: gather the current bundle's stored
+      // commits (oldest first) and apply their deltas over the server state.
+      const base = await serverManifest(project.id);
+      const b = await currentBundle(project.id);
+      const stored = (await listCommits(project.id, b.id)).filter((c) => c.stored).reverse();
+      if (stored.length === 0) {
+        error = "Nothing committed to deploy yet — commit your changes first.";
+        return;
+      }
+      const commits = await Promise.all(
+        stored.map(async (c) => ({ id: c.id, manifest: await getCommitManifest(c.id) })),
+      );
+      const newest = commits[commits.length - 1];
+      pendingDeploy = { summary: stored[stored.length - 1].message, manifest: newest.manifest };
+      currentKind = "deploy";
+      step = { step: "downloading", percent: 0 };
+      const token = await sessionToken();
+      await deployBundle(config, STORAGE_ENDPOINT, token, anonKey, project.id, b.id, base, commits);
     } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
       currentKind = null;
+      pendingDeploy = null;
       void record("deploy", failed);
     }
   }
@@ -232,7 +321,8 @@
     }
   }
 
-  async function onRollback(commitId: string) {
+  /** Restore a past deploy from its full snapshot (keyed by its bundle id). */
+  async function onRollback(bundleId: string) {
     if (!config) return;
     showHistory = false;
     error = null;
@@ -240,12 +330,15 @@
     currentKind = "rollback";
     step = { step: "downloading", percent: 0 };
     try {
+      // Remember the deploy's state so we can reset the server baseline to it.
+      pendingRollbackManifest = await getBundleManifest(bundleId).catch(() => null);
       const token = await sessionToken();
-      await rollbackToSnapshot(config, STORAGE_ENDPOINT, token, anonKey, project.id, commitId);
+      await rollbackToSnapshot(config, STORAGE_ENDPOINT, token, anonKey, project.id, "rollback", bundleId);
     } catch (e) {
       const failed: DeployStep = { step: "failed", message: String(e) };
       step = failed;
       currentKind = null;
+      pendingRollbackManifest = null;
       void record("rollback", failed);
     }
   }
@@ -270,12 +363,21 @@
   {#if !config}
     <div class="card notice">
       <p>
-        No local folder on this device. Add one under <strong>Overview → Local
+        No local folder on this device. Add one under <strong>Settings → Local
         folder</strong> to deploy and commit from here. You can still see the
         shared deploy history below.
       </p>
     </div>
   {:else}
+    {#if syncBlocked}
+      <div class="card sync-banner">
+        <p>
+          ⬇ A teammate shipped a newer deploy. Commit or discard your local
+          changes and it will sync into this folder automatically.
+        </p>
+      </div>
+    {/if}
+
     <CloudCommits {project} {config} refresh={cloudRefresh} onCommitted={loadDeploys} />
 
     <div class="card actions-card">
@@ -363,6 +465,17 @@
     border-radius: 10px;
     padding: 16px;
     margin-bottom: 22px;
+  }
+
+  .sync-banner {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  }
+
+  .sync-banner p {
+    margin: 0;
+    line-height: 1.5;
+    font-size: 13px;
   }
 
   .notice p {

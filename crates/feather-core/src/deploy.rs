@@ -165,10 +165,10 @@ async fn run_deploy(
     run_pipeline(client, store, project, &local, commit, tx).await
 }
 
-/// Roll back to a cloud commit's snapshot: download it from the storage
-/// backend, extract it into a temp directory and deploy from there. The local
-/// folder is never touched, so a teammate can roll the server back to any
-/// commit even without that commit's files locally.
+/// Roll the server back to a stored full snapshot (a released deploy, `kind` =
+/// "rollback"): download it from the storage backend, extract it into a temp
+/// directory and deploy from there. The local folder is never touched, so any
+/// teammate can restore a past deploy even without those files locally.
 #[allow(clippy::too_many_arguments)]
 pub fn start_snapshot_rollback(
     client: PanelClient,
@@ -178,7 +178,8 @@ pub fn start_snapshot_rollback(
     token: String,
     anon_key: String,
     project_id: String,
-    commit_id: String,
+    kind: String,
+    snapshot_id: String,
 ) -> DeployHandle {
     spawn_engine(move |tx| async move {
         run_snapshot_rollback(
@@ -189,7 +190,8 @@ pub fn start_snapshot_rollback(
             &token,
             &anon_key,
             &project_id,
-            &commit_id,
+            &kind,
+            &snapshot_id,
             &tx,
         )
         .await
@@ -205,12 +207,18 @@ async fn run_snapshot_rollback(
     token: &str,
     anon_key: &str,
     project_id: &str,
-    commit_id: &str,
+    kind: &str,
+    snapshot_id: &str,
     tx: &mpsc::Sender<DeployStep>,
 ) -> Result<(usize, usize), Error> {
     let _ = tx.send(DeployStep::Downloading { percent: 0 }).await;
     let bytes = crate::snapshot::download_snapshot(
-        endpoint, token, anon_key, project_id, commit_id, "commit",
+        endpoint,
+        token,
+        anon_key,
+        project_id,
+        snapshot_id,
+        kind,
     )
     .await?;
 
@@ -229,7 +237,7 @@ async fn run_snapshot_rollback(
         store,
         project,
         temp.path(),
-        Some(commit_id.to_string()),
+        Some(snapshot_id.to_string()),
         tx,
     )
     .await
@@ -314,61 +322,7 @@ async fn run_pipeline(
         })
         .await;
 
-    // Make sure the target directory exists (best effort — a level that
-    // already exists makes the panel answer with an error we can ignore).
-    if root != "/" {
-        let mut parent = String::from("/");
-        for segment in root.trim_start_matches('/').split('/') {
-            let _ = client
-                .create_folder(&project.server_identifier, &parent, segment)
-                .await;
-            if parent != "/" {
-                parent.push('/');
-            }
-            parent.push_str(segment);
-        }
-    }
-
-    let remote_name = format!(".feather-deploy-{}.zip", now_secs());
-
-    let _ = tx.send(DeployStep::Uploading { percent: 0 }).await;
-    let signed_url = client.upload_url(&project.server_identifier).await?;
-    let progress_tx = tx.clone();
-    let mut last_percent = 0u8;
-    client
-        .upload_zip(
-            &signed_url,
-            &root,
-            archive.path(),
-            &remote_name,
-            move |sent, total| {
-                let percent = if total == 0 {
-                    100
-                } else {
-                    ((sent as f64 / total as f64) * 100.0) as u8
-                };
-                if percent != last_percent {
-                    last_percent = percent;
-                    // try_send: progress must never block the upload.
-                    let _ = progress_tx.try_send(DeployStep::Uploading { percent });
-                }
-            },
-        )
-        .await?;
-
-    let _ = tx.send(DeployStep::Extracting).await;
-    client
-        .decompress_file(&project.server_identifier, &root, &remote_name)
-        .await?;
-
-    let _ = tx.send(DeployStep::CleaningUp).await;
-    client
-        .delete_files(
-            &project.server_identifier,
-            &root,
-            std::slice::from_ref(&remote_name),
-        )
-        .await?;
+    push_archive(client, project, &root, archive.path(), tx).await?;
 
     // Manifest diff: what the last deploy contained but this one doesn't
     // gets deleted remotely, so stale plugins/scripts can't linger.
@@ -417,6 +371,335 @@ async fn run_pipeline(
     }
 
     Ok((manifest.len(), stale.len()))
+}
+
+/// Upload a packed archive into `root` on the server, decompress it and remove
+/// the uploaded archive. Shared by the folder pipeline and the bundle deploy.
+async fn push_archive(
+    client: &PanelClient,
+    project: &ProjectConfig,
+    root: &str,
+    archive_path: &Path,
+    tx: &mpsc::Sender<DeployStep>,
+) -> Result<(), Error> {
+    // Make sure the target directory exists (best effort — a level that
+    // already exists makes the panel answer with an error we can ignore).
+    if root != "/" {
+        let mut parent = String::from("/");
+        for segment in root.trim_start_matches('/').split('/') {
+            let _ = client
+                .create_folder(&project.server_identifier, &parent, segment)
+                .await;
+            if parent != "/" {
+                parent.push('/');
+            }
+            parent.push_str(segment);
+        }
+    }
+
+    let remote_name = format!(".feather-deploy-{}.zip", now_secs());
+
+    let _ = tx.send(DeployStep::Uploading { percent: 0 }).await;
+    let signed_url = client.upload_url(&project.server_identifier).await?;
+    let progress_tx = tx.clone();
+    let mut last_percent = 0u8;
+    client
+        .upload_zip(
+            &signed_url,
+            root,
+            archive_path,
+            &remote_name,
+            move |sent, total| {
+                let percent = if total == 0 {
+                    100
+                } else {
+                    ((sent as f64 / total as f64) * 100.0) as u8
+                };
+                if percent != last_percent {
+                    last_percent = percent;
+                    // try_send: progress must never block the upload.
+                    let _ = progress_tx.try_send(DeployStep::Uploading { percent });
+                }
+            },
+        )
+        .await?;
+
+    let _ = tx.send(DeployStep::Extracting).await;
+    client
+        .decompress_file(&project.server_identifier, root, &remote_name)
+        .await?;
+
+    let _ = tx.send(DeployStep::CleaningUp).await;
+    client
+        .delete_files(
+            &project.server_identifier,
+            root,
+            std::slice::from_ref(&remote_name),
+        )
+        .await?;
+    Ok(())
+}
+
+/// One commit of the current Deploy bundle, as needed to apply it: the storage
+/// id of its delta snapshot and the full manifest of the tree *after* it. The
+/// caller passes these oldest-first.
+#[derive(Debug, Clone)]
+pub struct BundleCommit {
+    /// Storage commit id — used to download the commit's delta zip.
+    pub id: String,
+    /// Full path → hash manifest of the committed tree after this commit.
+    pub manifest: crate::snapshot::Manifest,
+}
+
+/// Storage context for snapshotting the deployed state as a rollback point.
+struct SnapshotCtx {
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    /// The bundle being deployed — the rollback snapshot is keyed by its id.
+    bundle_id: String,
+}
+
+/// Deploy the current bundle: apply the accumulated commit deltas to the server
+/// and nothing else. A deploy introduces no changes of its own — uncommitted
+/// local edits are never shipped, and a member without a local folder can
+/// deploy just the same. `bundle_id` keys the full-tree rollback snapshot taken
+/// once the new state is live.
+#[allow(clippy::too_many_arguments)]
+pub fn start_bundle_deploy(
+    client: PanelClient,
+    store: ConfigStore,
+    project: ProjectConfig,
+    endpoint: String,
+    token: String,
+    anon_key: String,
+    project_id: String,
+    bundle_id: String,
+    base: crate::snapshot::Manifest,
+    commits: Vec<BundleCommit>,
+) -> DeployHandle {
+    spawn_engine(move |tx| async move {
+        run_bundle_deploy(
+            &client,
+            &store,
+            &project,
+            &endpoint,
+            &token,
+            &anon_key,
+            &project_id,
+            &bundle_id,
+            base,
+            commits,
+            &tx,
+        )
+        .await
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_bundle_deploy(
+    client: &PanelClient,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    bundle_id: &str,
+    base: crate::snapshot::Manifest,
+    commits: Vec<BundleCommit>,
+    tx: &mpsc::Sender<DeployStep>,
+) -> Result<(usize, usize), Error> {
+    if commits.is_empty() {
+        return Err(Error::Deploy(
+            "nothing to deploy — commit your changes first".into(),
+        ));
+    }
+
+    // Download each commit's delta zip and derive the paths it deleted from the
+    // difference between its manifest and the previous one (base for the first).
+    let _ = tx.send(DeployStep::Downloading { percent: 0 }).await;
+    let mut deltas = Vec::with_capacity(commits.len());
+    let mut prev: &crate::snapshot::Manifest = &base;
+    for bc in &commits {
+        let bytes = crate::snapshot::download_snapshot(
+            endpoint, token, anon_key, project_id, &bc.id, "commit",
+        )
+        .await?;
+        let deleted: Vec<String> = prev
+            .keys()
+            .filter(|p| !bc.manifest.contains_key(*p))
+            .cloned()
+            .collect();
+        deltas.push(crate::snapshot::CommitDelta {
+            zip: bytes,
+            deleted,
+        });
+        prev = &bc.manifest;
+    }
+
+    let commit_id = commits.last().map(|c| c.id.clone());
+    let snapshot = SnapshotCtx {
+        endpoint: endpoint.to_string(),
+        token: token.to_string(),
+        anon_key: anon_key.to_string(),
+        project_id: project_id.to_string(),
+        bundle_id: bundle_id.to_string(),
+    };
+    apply_bundle(
+        client,
+        store,
+        project,
+        base,
+        deltas,
+        commit_id,
+        Some(&snapshot),
+        tx,
+    )
+    .await
+}
+
+/// Apply already-fetched commit deltas to the server: overlay them onto the
+/// server baseline, upload the net changed files and delete the net removed
+/// ones — nothing else. Split out from the download so it can be driven
+/// directly (tests, or callers that already hold the deltas).
+pub fn start_apply_bundle(
+    client: PanelClient,
+    store: ConfigStore,
+    project: ProjectConfig,
+    base: crate::snapshot::Manifest,
+    deltas: Vec<crate::snapshot::CommitDelta>,
+    commit_id: Option<String>,
+) -> DeployHandle {
+    spawn_engine(move |tx| async move {
+        apply_bundle(
+            &client, &store, &project, base, deltas, commit_id, None, &tx,
+        )
+        .await
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_bundle(
+    client: &PanelClient,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+    base: crate::snapshot::Manifest,
+    deltas: Vec<crate::snapshot::CommitDelta>,
+    commit_id: Option<String>,
+    snapshot: Option<&SnapshotCtx>,
+    tx: &mpsc::Sender<DeployStep>,
+) -> Result<(usize, usize), Error> {
+    let root = normalize_target_dir(&project.target_dir)?;
+
+    if project.auto_backup {
+        let _ = tx.send(DeployStep::BackingUp).await;
+        ensure_backup(client, &project.server_identifier, tx).await?;
+    }
+
+    // Overlay the deltas into a temp tree: it ends up holding exactly the net
+    // added/modified files, and reports the paths to delete on the server.
+    let _ = tx.send(DeployStep::Extracting).await;
+    let temp = tempfile::tempdir()?;
+    let (net_deleted, resulting) = {
+        let base = base.clone();
+        let dest = temp.path().to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            crate::snapshot::materialize_deltas(&base, &deltas, &dest)
+        })
+        .await
+        .map_err(|e| Error::Deploy(format!("materialize task failed: {e}")))??
+    };
+
+    let to_upload = scan_project(temp.path())?;
+    if to_upload.is_empty() && net_deleted.is_empty() {
+        return Err(Error::Deploy(
+            "nothing to deploy — the committed changes are already on the server".into(),
+        ));
+    }
+
+    // Upload the changed files (if any).
+    if !to_upload.is_empty() {
+        let _ = tx
+            .send(DeployStep::Packing {
+                files: to_upload.len(),
+            })
+            .await;
+        let archive = {
+            let source = temp.path().to_path_buf();
+            let files = to_upload.clone();
+            tokio::task::spawn_blocking(move || pack_zip(&source, &files))
+                .await
+                .map_err(|e| Error::Deploy(format!("packing task failed: {e}")))??
+        };
+        push_archive(client, project, &root, archive.path(), tx).await?;
+    }
+
+    // Apply the net deletions on the server.
+    if !net_deleted.is_empty() {
+        let _ = tx.send(DeployStep::CleaningUp).await;
+        client
+            .delete_files(&project.server_identifier, &root, &net_deleted)
+            .await?;
+    }
+
+    // Snapshot the full deployed tree as a rollback point (best effort). The
+    // server now holds the new state, so download it and store it keyed by the
+    // bundle id — rollback later restores this deploy from it. A failure here
+    // (e.g. a very large tree) must never fail the deploy itself.
+    if let Some(ctx) = snapshot {
+        if let Ok(temp) = tempfile::tempdir() {
+            match crate::sync::download_server_tree(client, project, temp.path()).await {
+                Ok(_) => {
+                    if let Err(e) = crate::snapshot::upload_snapshot(
+                        temp.path(),
+                        &ctx.endpoint,
+                        &ctx.token,
+                        &ctx.anon_key,
+                        &ctx.project_id,
+                        &ctx.bundle_id,
+                        "rollback",
+                    )
+                    .await
+                    {
+                        eprintln!("rollback snapshot skipped: {e}");
+                    }
+                }
+                Err(e) => eprintln!("rollback snapshot skipped: {e}"),
+            }
+        }
+    }
+
+    // Record the new full server state so future diffs/baselines are correct
+    // and other devices can sync to it. The deploy record and sync marker track
+    // the list of paths now on the server.
+    let deployed_at = now_secs();
+    let resulting_paths: Vec<String> = resulting.keys().cloned().collect();
+    store.save_deploy_record(
+        &project.id,
+        &DeployRecord {
+            timestamp: deployed_at,
+            manifest: resulting_paths.clone(),
+            commit: commit_id.clone(),
+        },
+    )?;
+    let _ = client
+        .write_file(
+            &project.server_identifier,
+            &crate::sync::state_path(&root),
+            crate::sync::state_json(deployed_at, &commit_id, &resulting_paths),
+        )
+        .await;
+
+    if project.post_deploy == PostDeployAction::Restart {
+        let _ = tx.send(DeployStep::Restarting).await;
+        client
+            .set_power(&project.server_identifier, PowerSignal::Restart)
+            .await?;
+    }
+
+    Ok((resulting.len(), net_deleted.len()))
 }
 
 /// Run the configured build command through the platform shell, streaming

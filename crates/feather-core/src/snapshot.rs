@@ -149,6 +149,102 @@ pub fn snapshot_zip(root: &Path) -> Result<(Vec<u8>, Manifest), Error> {
     Ok((cursor.into_inner(), manifest))
 }
 
+/// A commit's stored delta: the zip of its changed (added or modified) files
+/// and the paths it removed relative to the previous state. This is what a
+/// commit records in the new model — only what changed, not the whole tree.
+#[derive(Debug, Clone)]
+pub struct CommitDelta {
+    pub zip: Vec<u8>,
+    pub deleted: Vec<String>,
+}
+
+/// Pack only the files that changed relative to `base` (added or modified) into
+/// an in-memory zip, and report the full resulting manifest plus the paths
+/// deleted relative to `base`. This is a **commit delta** — the minimal content
+/// needed to move a tree from `base` to the working tree at `root`. Unlike
+/// [`snapshot_zip`], unchanged files are not stored.
+pub fn delta_zip(root: &Path, base: &Manifest) -> Result<(Vec<u8>, Manifest, Vec<String>), Error> {
+    let resulting = manifest_of(root)?;
+    let diff = diff_manifests(base, &resulting);
+    let cursor = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(cursor);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut deleted = Vec::new();
+    for change in &diff.changes {
+        match change.change {
+            ChangeKind::Added | ChangeKind::Modified => {
+                let bytes = std::fs::read(local_path(root, &change.path))?;
+                zip.start_file(change.path.clone(), options)
+                    .map_err(|e| Error::Deploy(format!("zip {}: {e}", change.path)))?;
+                zip.write_all(&bytes)?;
+            }
+            ChangeKind::Deleted => deleted.push(change.path.clone()),
+        }
+    }
+    let cursor = zip
+        .finish()
+        .map_err(|e| Error::Deploy(format!("finish delta zip: {e}")))?;
+    Ok((cursor.into_inner(), resulting, deleted))
+}
+
+/// The file entry names stored in a zip (our own archives; `..` rejected).
+fn zip_entry_names(bytes: &[u8]) -> Result<Vec<String>, Error> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| Error::Deploy(format!("open delta: {e}")))?;
+    let mut names = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| Error::Deploy(format!("read delta entry: {e}")))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        if name.contains("..") {
+            continue;
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
+/// Overlay an ordered chain of commit deltas on top of `base` into `dest`
+/// (oldest first; a newer commit's file overwrites an older one). `dest` ends
+/// up containing exactly the added/modified files of the net change — what must
+/// be written to a server currently at `base` to reach the committed state.
+///
+/// Returns `(net_deleted, resulting)`: the paths to delete on that server
+/// (present in `base`, gone after the whole chain) and the resulting manifest
+/// (the new full server state). A deploy is thus purely the sum of its commits —
+/// it introduces no changes of its own.
+pub fn materialize_deltas(
+    base: &Manifest,
+    deltas: &[CommitDelta],
+    dest: &Path,
+) -> Result<(Vec<String>, Manifest), Error> {
+    let mut manifest = base.clone();
+    for delta in deltas {
+        extract_zip(&delta.zip, dest)?;
+        for name in zip_entry_names(&delta.zip)? {
+            let bytes = std::fs::read(local_path(dest, &name))?;
+            manifest.insert(name, hash_bytes(&bytes));
+        }
+        for path in &delta.deleted {
+            manifest.remove(path);
+            // A file added by an earlier commit and removed by a later one must
+            // not be uploaded, so drop it from the staging tree too.
+            let _ = std::fs::remove_file(local_path(dest, path));
+        }
+    }
+    let net_deleted = base
+        .keys()
+        .filter(|p| !manifest.contains_key(*p))
+        .cloned()
+        .collect();
+    Ok((net_deleted, manifest))
+}
+
 /// Pack the working tree at `root` and upload it to the storage backend
 /// through the `feather-storage` Edge Function, which holds the storage
 /// server's key. Returns the file count and manifest of what was uploaded.
@@ -169,6 +265,49 @@ pub async fn upload_snapshot(
 ) -> Result<(usize, Manifest), Error> {
     let (bytes, manifest) = snapshot_zip(root)?;
     let files = manifest.len();
+    put_snapshot(
+        bytes, endpoint, token, anon_key, project_id, commit_id, kind,
+    )
+    .await?;
+    Ok((files, manifest))
+}
+
+/// Pack only what changed relative to `base` (a **commit delta**) and upload it
+/// to the storage backend. Returns the number of changed paths (added,
+/// modified and deleted) and the full resulting manifest of the working tree —
+/// the latter is recorded as the commit's state so a deploy can apply the
+/// bundle. See [`upload_snapshot`] for the auth model.
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_delta(
+    root: &Path,
+    base: &Manifest,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<(usize, Manifest), Error> {
+    let (bytes, resulting, deleted) = delta_zip(root, base)?;
+    // Changed paths = added/modified (in the zip) + deleted.
+    let changed = zip_entry_names(&bytes)?.len() + deleted.len();
+    put_snapshot(
+        bytes, endpoint, token, anon_key, project_id, commit_id, kind,
+    )
+    .await?;
+    Ok((changed, resulting))
+}
+
+/// POST a snapshot/delta zip to the storage backend through the Edge Function.
+async fn put_snapshot(
+    bytes: Vec<u8>,
+    endpoint: &str,
+    token: &str,
+    anon_key: &str,
+    project_id: &str,
+    commit_id: &str,
+    kind: &str,
+) -> Result<(), Error> {
     let mut url = url::Url::parse(endpoint).map_err(|e| Error::Deploy(e.to_string()))?;
     url.query_pairs_mut()
         .append_pair("action", "put")
@@ -189,7 +328,7 @@ pub async fn upload_snapshot(
             res.status().as_u16()
         )));
     }
-    Ok((files, manifest))
+    Ok(())
 }
 
 /// Download a commit/rollback snapshot (a zip) from the storage backend through
@@ -236,7 +375,7 @@ pub async fn snapshot_file(
     commit_id: &str,
     kind: &str,
     path: &str,
-) -> Result<String, Error> {
+) -> Result<Option<String>, Error> {
     let bytes = download_snapshot(endpoint, token, anon_key, project_id, commit_id, kind).await?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .map_err(|e| Error::Deploy(format!("open snapshot: {e}")))?;
@@ -248,10 +387,13 @@ pub async fn snapshot_file(
         }
         Err(_) => false,
     };
+    // `None` = the path is not in this snapshot's zip. For a delta that means
+    // the commit did not add/modify this file (it was inherited or removed), so
+    // callers can walk back to the commit that actually wrote it.
     if found {
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
     } else {
-        Ok(String::new())
+        Ok(None)
     }
 }
 
@@ -382,5 +524,118 @@ mod tests {
         let mut names: Vec<String> = reader.file_names().map(String::from).collect();
         names.sort();
         assert_eq!(names, vec!["a.txt".to_string(), "sub/b.txt".to_string()]);
+    }
+
+    /// Build a CommitDelta from a directory `root` against a `base` manifest.
+    fn delta_of(root: &Path, base: &Manifest) -> (CommitDelta, Manifest) {
+        let (zip, resulting, deleted) = delta_zip(root, base).unwrap();
+        (CommitDelta { zip, deleted }, resulting)
+    }
+
+    fn names_in(zip: &[u8]) -> Vec<String> {
+        let mut n = zip_entry_names(zip).unwrap();
+        n.sort();
+        n
+    }
+
+    #[test]
+    fn delta_zip_packs_only_changed_files_and_lists_deletions() {
+        // Base state.
+        let base_dir = tempfile::tempdir().unwrap();
+        write(base_dir.path(), "keep.txt", "same");
+        write(base_dir.path(), "change.txt", "old");
+        write(base_dir.path(), "gone.txt", "bye");
+        let base = manifest_of(base_dir.path()).unwrap();
+
+        // Working tree: keep unchanged, change modified, gone deleted, new added.
+        let work = tempfile::tempdir().unwrap();
+        write(work.path(), "keep.txt", "same");
+        write(work.path(), "change.txt", "new");
+        write(work.path(), "new.txt", "fresh");
+
+        let (zip, resulting, deleted) = delta_zip(work.path(), &base).unwrap();
+        // Only the added/modified files are stored — not the unchanged one.
+        assert_eq!(names_in(&zip), vec!["change.txt", "new.txt"]);
+        assert_eq!(deleted, vec!["gone.txt"]);
+        assert_eq!(resulting, manifest_of(work.path()).unwrap());
+    }
+
+    #[test]
+    fn materialize_combines_commits_touching_different_files() {
+        // Server baseline has one shared file.
+        let base_dir = tempfile::tempdir().unwrap();
+        write(base_dir.path(), "shared.txt", "s");
+        let base = manifest_of(base_dir.path()).unwrap();
+
+        // Commit A adds x.txt (keeps shared unchanged).
+        let a = tempfile::tempdir().unwrap();
+        write(a.path(), "shared.txt", "s");
+        write(a.path(), "x.txt", "xx");
+        let (da, _) = delta_of(a.path(), &base);
+
+        // Commit B adds y.txt.
+        let b = tempfile::tempdir().unwrap();
+        write(b.path(), "shared.txt", "s");
+        write(b.path(), "y.txt", "yy");
+        let (db, _) = delta_of(b.path(), &base);
+
+        let dest = tempfile::tempdir().unwrap();
+        let (net_deleted, resulting) = materialize_deltas(&base, &[da, db], dest.path()).unwrap();
+
+        // Both members' changes land, even though each was diffed against base.
+        assert_eq!(fs::read_to_string(dest.path().join("x.txt")).unwrap(), "xx");
+        assert_eq!(fs::read_to_string(dest.path().join("y.txt")).unwrap(), "yy");
+        // The unchanged shared file is not re-uploaded.
+        assert!(!dest.path().join("shared.txt").exists());
+        assert!(net_deleted.is_empty());
+        assert!(resulting.contains_key("shared.txt"));
+        assert!(resulting.contains_key("x.txt"));
+        assert!(resulting.contains_key("y.txt"));
+    }
+
+    #[test]
+    fn materialize_reports_deletions_to_apply_on_the_server() {
+        let base_dir = tempfile::tempdir().unwrap();
+        write(base_dir.path(), "keep.txt", "k");
+        write(base_dir.path(), "gone.txt", "g");
+        let base = manifest_of(base_dir.path()).unwrap();
+
+        // Commit removes gone.txt.
+        let work = tempfile::tempdir().unwrap();
+        write(work.path(), "keep.txt", "k");
+        let (delta, _) = delta_of(work.path(), &base);
+
+        let dest = tempfile::tempdir().unwrap();
+        let (net_deleted, resulting) = materialize_deltas(&base, &[delta], dest.path()).unwrap();
+
+        assert_eq!(net_deleted, vec!["gone.txt"]);
+        assert!(resulting.contains_key("keep.txt"));
+        assert!(!resulting.contains_key("gone.txt"));
+        // Nothing to upload (only a deletion happened).
+        assert!(!dest.path().join("keep.txt").exists());
+    }
+
+    #[test]
+    fn materialize_nets_out_a_file_added_then_deleted() {
+        let base = Manifest::new(); // empty server
+
+        // Commit A adds f.txt.
+        let a = tempfile::tempdir().unwrap();
+        write(a.path(), "f.txt", "f");
+        let (da, _) = delta_of(a.path(), &base);
+
+        // Commit B (built on A's state) deletes f.txt.
+        let b = tempfile::tempdir().unwrap();
+        // empty dir → f.txt gone relative to A's manifest
+        let a_manifest = manifest_of(a.path()).unwrap();
+        let (db, _) = delta_of(b.path(), &a_manifest);
+
+        let dest = tempfile::tempdir().unwrap();
+        let (net_deleted, resulting) = materialize_deltas(&base, &[da, db], dest.path()).unwrap();
+
+        assert!(!dest.path().join("f.txt").exists());
+        assert!(resulting.is_empty());
+        // f.txt never existed on the server, so nothing to delete there.
+        assert!(net_deleted.is_empty());
     }
 }

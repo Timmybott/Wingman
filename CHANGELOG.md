@@ -6,6 +6,60 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-07-23
+
+A deploy-model release. Commits and deploys are reworked so a **deploy ships
+exactly the committed work — nothing else**. A **commit** now records only its
+*delta* (what changed since the last commit); a **deploy** applies the
+accumulated deltas of the current bundle to the server and introduces no
+changes of its own. This makes deploys the true sum of their commits: different
+members' commits to different files combine cleanly, and uncommitted local
+edits are never shipped. After a deploy, teammates' local folders **sync
+automatically**, and **rollback** restores a past *deploy* from a full snapshot
+taken at deploy time. No new database migration — the change is in the storage
+format (commit zips are now deltas) and the engine.
+
+> **Upgrading from a pre-2.5 setup:** commit zips changed from full snapshots to
+> deltas, and rollback now targets deploys, so existing commit/deploy history
+> from an earlier build isn't compatible. Start the storage area fresh (the
+> database is unaffected).
+
+### Changed
+
+- **A commit stores only its delta.** Instead of a full snapshot of your folder,
+  a commit records just the files it changed relative to the accumulated
+  committed state, and uploads only those. The commit still knows the full
+  resulting tree, so a deploy can apply the whole bundle.
+- **A deploy applies its bundle's commits — and nothing else.** Pressing
+  **Deploy** downloads the current bundle's commit deltas and applies them over
+  the server's state; **uncommitted local edits are never deployed**, and a
+  teammate without a local folder can deploy just the same. A deploy with no
+  commits is blocked ("commit your changes first").
+- **Deploys combine everyone's commits.** Because commits are deltas, two
+  members who changed *different* files both land in the next deploy — the
+  previous full-snapshot model could only ship one member's folder.
+- **History reflects the model.** A deploy's detail lists exactly the commits it
+  shipped (no separate "changes on the server" — a deploy changes nothing on its
+  own); open a commit for its own line-level diff.
+- **Rollback restores a deploy, not a single commit.** Each deploy stores a
+  complete snapshot of the deployed tree; **Rollback to this deploy** (on a
+  deploy's detail) restores it in full, without touching your local folder.
+
+### Added
+
+- **Teammates' deploys sync automatically.** The Deploy tab watches the server's
+  deploy marker (on open and every 30 s) and pulls a newer deploy into your
+  local folder when your working tree is clean — so everyone stays on the latest
+  state. A dirty tree is never overwritten; a banner asks you to commit or
+  discard first, then it syncs on the next check.
+
+### Fixed
+
+- **The diff is correct again right after a rollback.** Rolling back now resets
+  the project's server-state baseline to the restored deploy, so "changes since
+  last deploy" no longer measures against the wrong state (the long-standing
+  edge noted in the spec).
+
 ## [2.4.0] — 2026-07-22
 
 A project-experience release. Everything inside a project is clearer and more

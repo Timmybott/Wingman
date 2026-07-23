@@ -254,6 +254,52 @@ async fn run_pull(
     Ok((files, 0))
 }
 
+/// Download the current contents of the project's target directory into `dest`
+/// as a full tree (Feather's state marker excluded). Used to snapshot the
+/// deployed state for rollback — no local folder, no progress, no git. Returns
+/// the number of files extracted.
+pub async fn download_server_tree(
+    client: &PanelClient,
+    project: &ProjectConfig,
+    dest: &Path,
+) -> Result<usize, Error> {
+    let root = normalize_target_dir(&project.target_dir)?;
+    let entries: Vec<String> = client
+        .list_files(&project.server_identifier, &root)
+        .await?
+        .into_iter()
+        .map(|e| e.name)
+        .filter(|name| name != STATE_FILE)
+        .collect();
+    if entries.is_empty() {
+        return Ok(0);
+    }
+    let archive = client
+        .compress_files(&project.server_identifier, &root, &entries)
+        .await?;
+    let archive_path = if root == "/" {
+        format!("/{}", archive.name)
+    } else {
+        format!("{root}/{}", archive.name)
+    };
+    let signed = client
+        .download_url(&project.server_identifier, &archive_path)
+        .await?;
+    let bytes = client.download_bytes(&signed, |_, _| {}).await?;
+    // Best effort — a leftover archive is ugly but harmless.
+    let _ = client
+        .delete_files(
+            &project.server_identifier,
+            &root,
+            std::slice::from_ref(&archive.name),
+        )
+        .await;
+    let dest = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || extract_tar_gz(&bytes, &dest))
+        .await
+        .map_err(|e| Error::Deploy(format!("extract task failed: {e}")))?
+}
+
 /// True when the folder contains anything besides a `.git` directory.
 fn dir_has_content(dir: &Path) -> Result<bool, Error> {
     for entry in std::fs::read_dir(dir)? {

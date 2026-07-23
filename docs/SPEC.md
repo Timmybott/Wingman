@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 22. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3; **Abschnitt 10.8 = Projekt-Experience: Diffs, Interaktivität & Aufräumen v2.4**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
+> Stand: 23. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3; Abschnitt 10.8 = Projekt-Experience: Diffs, Interaktivität & Aufräumen v2.4; **Abschnitt 10.9 = Delta-Commits, Bündel-Deploy, Auto-Sync & Deploy-Rollback v2.5**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -275,7 +275,7 @@ v2.3 arbeitet den Deploy/Commit/History/Rollback-Fluss zu **Cloud-Commits** um, 
 
 **Neue Meilensteine (v2.3):** M17 (Rename) · M18 (Backup-Verifikation) · M19 (Projekt→Panels) · M20 (Overview) · M21 (Profile + Admin) · M22a–f (Cloud-Commits/History/Rollback + Storage-Backend) · M23 (Issue-Verknüpfung) — alle abgeschlossen.
 
-**Bekannte Kante:** Nach einem Rollback wird die Server-Manifest-Referenz für den Diff nicht aktualisiert; der nächste Diff misst gegen den letzten *Deploy*, nicht den Rollback-Stand (unkritisch, später nachziehbar).
+**Bekannte Kante:** Nach einem Rollback wurde die Server-Manifest-Referenz für den Diff nicht aktualisiert; der nächste Diff maß gegen den letzten *Deploy*, nicht den Rollback-Stand. **In v2.5 behoben** (siehe 10.9): der Rollback setzt die Baseline jetzt auf den wiederhergestellten Deploy.
 
 ### 10.8 Projekt-Experience: Diffs, Interaktivität & Aufräumen (v2.4)
 
@@ -313,3 +313,29 @@ v2.4 macht alles **innerhalb eines Projekts** übersichtlicher, klickbarer und e
 - `0013` `projects.server_manifest` + `set_server_manifest` + Baseline-lesendes `server_manifest`/`release_bundle`.
 
 **Neue Meilensteine (v2.4):** M24 (Overview-Rework & Fixes) · M25 (Diff-Baseline + Datei-Diffs) · M26 (Files editieren) · M27 (Panels Disk + Marker) · M28 (Profile/Team-Quer-Links) · M29 (Issues + Deploy-History-Interaktivität) · M30 (Uncommitted-Ansicht & Politur) · M31 (Version 2.4.0 + Docs) — alle abgeschlossen.
+
+### 10.9 Delta-Commits, Bündel-Deploy, Auto-Sync & Deploy-Rollback (v2.5)
+
+v2.5 baut das Commit/Deploy-Modell um: Ein **Commit speichert nur sein Delta**, und ein **Deploy wendet die akkumulierten Deltas des aktuellen Bündels an — und sonst nichts**. Ein Deploy ist damit exakt die Summe seiner Commits. Kein neues DB-Schema; die Änderung liegt im **Storage-Format** (Commit-Zips sind jetzt Deltas) und in der Engine.
+
+**Delta-Commit (M32, M34).**
+- Core-Primitive (`snapshot.rs`): `delta_zip(root, base)` packt nur die geänderten Dateien und liefert `(zip, resultierendes Vollmanifest, gelöschte Pfade)`; `materialize_deltas(base, deltas, dest)` überlagert eine geordnete Delta-Kette und liefert Netto-Löschungen + resultierendes Manifest. Unit-getestet (u. a. „zwei Commits auf verschiedene Dateien kombinieren sich").
+- Commit-Fluss: `upload_commit_delta` lädt gegen die **akkumulierte Baseline** (Server-Manifest ⊕ vorherige Bündel-Commits = neuestes Commit-Manifest) nur das Delta hoch; `finalize_commit` speichert weiterhin das **volle resultierende Manifest**, damit ein Deploy das Bündel anwenden kann.
+
+**Bündel-Deploy (M33, M34).**
+- `start_bundle_deploy` lädt alle Commit-Deltas des Bündels, leitet je Commit die Löschungen aus aufeinanderfolgenden Manifesten ab und wendet sie über der Server-Baseline an (`apply_bundle` → `materialize_deltas` → Upload der Netto-Änderungen + Löschen der Netto-Entfernten). **Kein Build-Schritt**, kein lokaler Ordner als Quelle — auch ein Mitglied ohne lokalen Ordner kann deployen. Leeres Bündel → „nothing to deploy".
+- Integrationstest (Mock-Panel): zwei Commits auf verschiedene Dateien landen kombiniert; ein späteres Bündel ändert/löscht; leeres Bündel scheitert.
+
+**History (M35).**
+- Deploy-Detail zeigt nur noch **seine Commits** (kein „Changes on the server" — ein Deploy verändert nichts Eigenes). Datei-Diffs für Delta-Zips repariert: `snapshot_file` meldet `found`; ein Walk (`fileContentAt`) holt den echten alten/neuen Inhalt aus dem jüngsten Commit, der die Datei schrieb. Gilt auch für die Uncommitted-Ansicht (Fallback auf die Live-Server-Datei bei geerbten Dateien).
+
+**Auto-Sync (M35b).**
+- Der Deploy-Tab pollt den Server-Marker (beim Öffnen + alle 30 s) und zieht per `pull("sync")` einen neueren Deploy in den lokalen Ordner, sobald der Arbeitsbaum sauber ist. Dirty → Banner statt Überschreiben. (Die Marker-Schreibung war vorhanden, das Polling im Cloud-UI fehlte.)
+
+**Deploy-Rollback via Vollsnapshot (M35c).**
+- Bei jedem Deploy wird der **komplette deployte Baum** vom Server geladen (`sync::download_server_tree`) und als Vollsnapshot gespeichert (`kind="rollback"`, id = Bündel-ID) — best-effort, scheitert nie den Deploy.
+- Rollback zielt jetzt auf **Deploys** (nicht einzelne Commits): `rollback_to_snapshot(kind, snapshot_id)` lädt den Vollsnapshot und deployt ihn (Pipeline löscht seither hinzugefügte Dateien). Der Button wanderte von der Commit- auf die Deploy-Detailseite. Nach dem Rollback wird die Server-Baseline auf den wiederhergestellten Deploy gesetzt — **die bekannte Rollback-Diff-Kante aus 10.7 ist damit behoben.**
+
+**Kein neues Schema.** Das DB-Modell (`0001`–`0013`) bleibt unverändert; nur das Storage-Zip-Format (Delta statt Voll-Snapshot pro Commit) und die Rollback-Semantik ändern sich. Alt-Commit/Deploy-Historie aus einer früheren Version ist damit inkompatibel (Storage-Bereich frisch beginnen; die Datenbank bleibt unberührt).
+
+**Neue Meilensteine (v2.5):** M32 (Delta-Primitive) · M33 (Bündel-Deploy) · M34 (Delta-Commit + Bündel-Deploy Frontend) · M35 (History: Deploy = Summe der Commits) · M35b (Post-Deploy-Sync) · M35c (Deploy-Rollback via Vollsnapshot) · M36 (Version 2.5.0 + Docs) — alle abgeschlossen.

@@ -124,11 +124,6 @@ export function removeLocalProject(projectId: string, deleteFiles: boolean): Pro
  * this device's local folder), so it needs no local project store.
  */
 
-/** Start a deploy; progress arrives via onDeployEvent (keyed by project id). */
-export function deployProject(project: ProjectConfig): Promise<void> {
-  return invoke<void>("deploy_project", { project });
-}
-
 export function onDeployEvent(
   projectId: string,
   handler: (step: DeployStep) => void,
@@ -152,7 +147,8 @@ export function rollbackToSnapshot(
   token: string,
   anonKey: string,
   projectId: string,
-  commitId: string,
+  kind: string,
+  snapshotId: string,
 ): Promise<void> {
   return invoke<void>("rollback_to_snapshot", {
     project,
@@ -160,7 +156,8 @@ export function rollbackToSnapshot(
     token,
     anonKey,
     projectId,
-    commitId,
+    kind,
+    snapshotId,
   });
 }
 
@@ -202,25 +199,61 @@ export function projectDiff(project: ProjectConfig, base: Manifest): Promise<Dif
 }
 
 /**
- * Pack the local folder into a snapshot zip and upload it to the storage
- * backend via the feather-storage Edge Function. The Rust side POSTs the bytes
- * with the caller's session token; the function derives the path from the ids.
+ * Upload this commit's delta: only what changed relative to `base` (the
+ * accumulated committed state). Returns the number of changed paths and the
+ * full resulting manifest, recorded as the commit's state so a deploy can apply
+ * the whole bundle.
  */
-export function uploadCommitSnapshot(
+export function uploadCommitDelta(
   project: ProjectConfig,
+  base: Manifest,
   endpoint: string,
   token: string,
   anonKey: string,
   projectId: string,
   commitId: string,
 ): Promise<SnapshotUpload> {
-  return invoke<SnapshotUpload>("upload_commit_snapshot", {
+  return invoke<SnapshotUpload>("upload_commit_delta", {
     project,
+    base,
     endpoint,
     token,
     anonKey,
     projectId,
     commitId,
+  });
+}
+
+/** One commit of the current Deploy bundle, passed to deployBundle oldest first. */
+export interface BundleCommitArg {
+  id: string;
+  manifest: Manifest;
+}
+
+/**
+ * Deploy the current bundle: the Rust side downloads each commit's delta and
+ * applies them over `base` (the current server state) — nothing uncommitted is
+ * shipped. Progress arrives on the deploy-event channel.
+ */
+export function deployBundle(
+  project: ProjectConfig,
+  endpoint: string,
+  token: string,
+  anonKey: string,
+  projectId: string,
+  bundleId: string,
+  base: Manifest,
+  commits: BundleCommitArg[],
+): Promise<void> {
+  return invoke<void>("deploy_bundle", {
+    project,
+    endpoint,
+    token,
+    anonKey,
+    projectId,
+    bundleId,
+    base,
+    commits,
   });
 }
 
@@ -278,7 +311,16 @@ export function readLocalFile(project: ProjectConfig, path: string): Promise<str
   return invoke<string>("read_local_file", { project, path });
 }
 
-/** One file's text from a commit's stored snapshot ("" if not present). */
+/**
+ * One file's text from a commit's stored delta. `found` is false when the path
+ * is not in that commit's zip (inherited or removed) — walk back to the commit
+ * that actually wrote it.
+ */
+export interface SnapshotFile {
+  found: boolean;
+  text: string;
+}
+
 export function snapshotFile(
   endpoint: string,
   token: string,
@@ -286,8 +328,8 @@ export function snapshotFile(
   projectId: string,
   commitId: string,
   path: string,
-): Promise<string> {
-  return invoke<string>("snapshot_file", {
+): Promise<SnapshotFile> {
+  return invoke<SnapshotFile>("snapshot_file", {
     endpoint,
     token,
     anonKey,
