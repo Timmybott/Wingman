@@ -24,6 +24,7 @@
   import FileBrowser from "./FileBrowser.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     project,
@@ -388,7 +389,7 @@
             {/if}
           </div>
           {#if editingDescription}
-            <textarea bind:value={descriptionDraft} rows="10" placeholder="Describe this project — goals, plans, notes, links…&#10;&#10;Markdown supported: # headings, **bold**, - lists, `code`, and&#10;- [ ] checklists you can tick right on the overview"></textarea>
+            <MarkdownEditor bind:value={descriptionDraft} rows={10} placeholder="Describe this project — goals, plans, notes, links…" />
             <p class="hint muted">Markdown supported — headings, lists, code, links, and <code>- [ ]</code> checklists.</p>
             <div class="row-actions">
               <button class="ghost" onclick={() => (editingDescription = false)} disabled={savingDescription}>Cancel</button>
@@ -498,7 +499,7 @@
       </div>
       <div class="field">
         <label for="s-desc">Description</label>
-        <textarea id="s-desc" bind:value={description} rows="4"></textarea>
+        <MarkdownEditor id="s-desc" bind:value={description} rows={4} />
       </div>
       <div class="field">
         <label for="s-logo">Logo image URL <span class="muted">(optional)</span></label>
@@ -966,12 +967,6 @@
   .small {
     padding: 3px 10px;
     font-size: 12px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   select {

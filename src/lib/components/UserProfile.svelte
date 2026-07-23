@@ -10,6 +10,7 @@
     type UserProfile,
   } from "../cloud";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     userId,
@@ -148,7 +149,7 @@
         </div>
         <div class="field">
           <label for="p-bio">README <span class="muted">(Markdown)</span></label>
-          <textarea id="p-bio" bind:value={bio} rows="8" placeholder="Tell your team about yourself — # headings, **bold**, - lists, links…"></textarea>
+          <MarkdownEditor id="p-bio" bind:value={bio} rows={8} placeholder="Tell your team about yourself — headings, bold, lists, links…" />
         </div>
         {#if error}<p class="error">{error}</p>{/if}
         <div class="row-actions end">
@@ -367,12 +368,6 @@
   .edit h2 {
     margin-bottom: 16px;
     font-size: 16px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   .row-actions {
