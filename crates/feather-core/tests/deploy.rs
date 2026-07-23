@@ -523,3 +523,104 @@ async fn failing_deploy_ends_with_failed_event() {
         other => panic!("expected Failed, got {other:?}"),
     }
 }
+
+// --- Bundle deploy (delta model) -------------------------------------------
+
+use feather_core::snapshot::{delta_zip, CommitDelta, Manifest};
+use feather_core::start_apply_bundle;
+
+/// Build a commit delta for a working tree containing `files`, diffed against
+/// `base`. Returns the delta and the resulting manifest (the new committed
+/// state), so the next commit can be chained on top.
+fn commit_delta(base: &Manifest, files: &[(&str, &str)]) -> (CommitDelta, Manifest) {
+    let dir = tempfile::tempdir().unwrap();
+    for (rel, content) in files {
+        write_file(dir.path(), rel, content);
+    }
+    let (zip, resulting, deleted) = delta_zip(dir.path(), base).unwrap();
+    (CommitDelta { zip, deleted }, resulting)
+}
+
+async fn apply_bundle(
+    panel: &MockPanel,
+    store: &ConfigStore,
+    project: &ProjectConfig,
+    base: Manifest,
+    deltas: Vec<CommitDelta>,
+) -> Vec<DeployStep> {
+    let client = PanelClient::new(&panel.base_url(), API_KEY).unwrap();
+    drive(start_apply_bundle(
+        client,
+        store.clone(),
+        project.clone(),
+        base,
+        deltas,
+        Some("newest-commit".into()),
+    ))
+    .await
+}
+
+#[tokio::test]
+async fn bundle_deploy_applies_only_its_commits_and_combines_them() {
+    let panel = MockPanel::spawn().await;
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    // apply_bundle never reads the local folder — a throwaway path is fine.
+    let project = project(
+        tempfile::tempdir().unwrap().path(),
+        "",
+        PostDeployAction::Notify,
+    );
+
+    // Two commits by (conceptually) different members touching different files,
+    // chained: commit B is built on top of A's committed state.
+    let base = Manifest::new(); // empty server to start
+    let (a, m_a) = commit_delta(&base, &[("shared.txt", "s"), ("x.txt", "xx")]);
+    let (b, m_b) = commit_delta(
+        &m_a,
+        &[("shared.txt", "s"), ("x.txt", "xx"), ("y.txt", "yy")],
+    );
+
+    let steps = apply_bundle(&panel, &store, &project, base, vec![a, b]).await;
+    let (files, deleted) = assert_done(&steps);
+    assert_eq!(files, 3, "resulting server state has shared, x and y");
+    assert_eq!(deleted, 0);
+
+    // Both members' changes landed, even though a deploy ships no local folder.
+    assert_eq!(
+        visible_files(&panel, SERVER),
+        vec!["shared.txt", "x.txt", "y.txt"]
+    );
+    assert_eq!(panel.file_contents(SERVER, "x.txt").unwrap(), b"xx");
+    assert_eq!(panel.file_contents(SERVER, "y.txt").unwrap(), b"yy");
+
+    // A second bundle that modifies shared.txt and deletes y.txt: the deploy is
+    // purely the sum of its commit, so y.txt goes and shared.txt updates.
+    let (c, _m_c) = commit_delta(&m_b, &[("shared.txt", "s2"), ("x.txt", "xx")]);
+    let steps = apply_bundle(&panel, &store, &project, m_b, vec![c]).await;
+    let (files, deleted) = assert_done(&steps);
+    assert_eq!(files, 2, "shared and x remain");
+    assert_eq!(deleted, 1, "y.txt was removed");
+
+    assert_eq!(visible_files(&panel, SERVER), vec!["shared.txt", "x.txt"]);
+    assert_eq!(panel.file_contents(SERVER, "shared.txt").unwrap(), b"s2");
+    assert!(panel.file_contents(SERVER, "y.txt").is_none());
+}
+
+#[tokio::test]
+async fn bundle_deploy_without_commits_fails() {
+    let panel = MockPanel::spawn().await;
+    let store = ConfigStore::new(tempfile::tempdir().unwrap().path());
+    let project = project(
+        tempfile::tempdir().unwrap().path(),
+        "",
+        PostDeployAction::Notify,
+    );
+
+    let steps = apply_bundle(&panel, &store, &project, Manifest::new(), vec![]).await;
+    match steps.last() {
+        Some(DeployStep::Failed { message }) => {
+            assert!(message.contains("nothing to deploy"), "message: {message}")
+        }
+        other => panic!("expected Failed, got {other:?}"),
+    }
+}

@@ -17,7 +17,10 @@ pub mod ws;
 
 pub use api::{normalize_base_url, PanelClient};
 pub use config::{ConfigStore, DeployRecord, PanelConfig, PostDeployAction, ProjectConfig};
-pub use deploy::{start_deploy, start_rollback, start_snapshot_rollback, DeployHandle, DeployStep};
+pub use deploy::{
+    start_apply_bundle, start_bundle_deploy, start_deploy, start_rollback, start_snapshot_rollback,
+    BundleCommit, DeployHandle, DeployStep,
+};
 pub use error::Error;
 pub use git::{ChangedFile, CommitInfo, RepoStatus};
 pub use snapshot::{
