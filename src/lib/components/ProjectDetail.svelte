@@ -32,6 +32,7 @@
     panels,
     members,
     teamName,
+    canWrite = true,
     onBack,
     onChanged,
     onDeleted,
@@ -43,11 +44,13 @@
     panels: CloudPanel[];
     members: TeamMember[];
     teamName: string;
+    /** False for a project of another team — everything is read-only. */
+    canWrite?: boolean;
     onBack: () => void;
     onChanged: (updated: CloudProject) => void;
     onDeleted: (id: string) => void;
     onOpenServer: (panelId: string, identifier: string) => void;
-    onOpenTeam: () => void;
+    onOpenTeam: (teamId?: string) => void;
     onOpenProfile: (userId: string) => void;
   } = $props();
 
@@ -318,7 +321,10 @@
       <div class="head-text">
         <h1>{project.name}</h1>
         <div class="subline">
-          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">{teamName}</button>
+          <button class="team-chip" onclick={() => onOpenTeam(project.team_id)} title="Open the team page">{teamName}</button>
+          {#if !canWrite}
+            <span class="tag readonly" title="This project belongs to another of your teams">Read-only</span>
+          {/if}
           {#if panelName}
             <span class="tag">{panelName}</span>
           {/if}
@@ -327,7 +333,7 @@
           {:else}
             <span class="muted">Not linked to a server yet</span>
           {/if}
-          {#if linkedServer}
+          {#if linkedServer && canWrite}
             <button class="ghost small open-panels" onclick={openServer} title="Show this server's tile in the Panels tab">
               Open in Panels ↗
             </button>
@@ -340,9 +346,11 @@
   <nav class="subtabs">
     <button class:active={tab === "overview"} onclick={() => (tab = "overview")}>Overview</button>
     <button class:active={tab === "issues"} onclick={() => (tab = "issues")}>Issues</button>
-    <button class:active={tab === "deploy"} onclick={() => (tab = "deploy")}>Deploy</button>
+    <button class:active={tab === "deploy"} onclick={() => (tab = "deploy")}>{canWrite ? "Deploy" : "History"}</button>
     <button class:active={tab === "files"} onclick={() => (tab = "files")}>Files</button>
-    <button class:active={tab === "settings"} onclick={openSettings}>Settings</button>
+    {#if canWrite}
+      <button class:active={tab === "settings"} onclick={openSettings}>Settings</button>
+    {/if}
   </nav>
 
   {#if error}<p class="error">{error}</p>{/if}
@@ -385,7 +393,7 @@
         <div class="card">
           <div class="card-head">
             <h2>About</h2>
-            {#if !editingDescription}
+            {#if !editingDescription && canWrite}
               <button class="ghost small" onclick={startDescriptionEdit}>Edit</button>
             {/if}
           </div>
@@ -399,7 +407,7 @@
               </button>
             </div>
           {:else if project.description.trim() !== ""}
-            <Markdown source={project.description} onToggleTask={toggleTask} />
+            <Markdown source={project.description} onToggleTask={canWrite ? toggleTask : undefined} />
           {:else}
             <p class="muted">No description yet. Add goals, plans and notes so your team is on the same page.</p>
           {/if}
@@ -440,23 +448,25 @@
       <aside class="side">
         <div class="meta-item">
           <span class="label muted">Team</span>
-          <button class="link-btn" onclick={() => onOpenTeam()} title="Open the team page">{teamName} ↗</button>
+          <button class="link-btn" onclick={() => onOpenTeam(project.team_id)} title="Open the team page">{teamName} ↗</button>
         </div>
-        <div class="meta-item">
-          <span class="label muted">Local folder · this device</span>
-          {#if localPath}
-            <span class="mono folder">{localPath}</span>
-          {:else}
-            <span class="muted">Not set — add it in <button class="inline-link" onclick={openSettings}>Settings</button></span>
-          {/if}
-        </div>
+        {#if canWrite}
+          <div class="meta-item">
+            <span class="label muted">Local folder · this device</span>
+            {#if localPath}
+              <span class="mono folder">{localPath}</span>
+            {:else}
+              <span class="muted">Not set — add it in <button class="inline-link" onclick={openSettings}>Settings</button></span>
+            {/if}
+          </div>
+        {/if}
         <div class="meta-item">
           <span class="label muted">Panel</span>
           <span>{panelName ?? "— not linked —"}</span>
         </div>
         <div class="meta-item">
           <span class="label muted">Server</span>
-          {#if linkedServer}
+          {#if linkedServer && canWrite}
             <button class="link-btn mono" onclick={openServer} title="Show this server's tile in the Panels tab">
               {project.server_identifier} ↗
             </button>
@@ -483,12 +493,12 @@
       </aside>
     </div>
   {:else if tab === "issues"}
-    <IssuesPanel projectId={project.id} {onOpenProfile} />
+    <IssuesPanel projectId={project.id} {canWrite} {onOpenProfile} />
   {:else if tab === "deploy"}
-    <DeployPanel {project} {localPath} {autoImport} onImported={() => (autoImport = false)} />
+    <DeployPanel {project} {localPath} {autoImport} {canWrite} onImported={() => (autoImport = false)} />
   {:else if tab === "files"}
     {#if project.panel_id && project.server_identifier}
-      <FileBrowser panelId={project.panel_id} identifier={project.server_identifier} />
+      <FileBrowser panelId={project.panel_id} identifier={project.server_identifier} {canWrite} />
     {:else}
       <p class="muted center empty">This project isn't linked to a server, so there are no files to browse.</p>
     {/if}
@@ -948,6 +958,11 @@
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 2px 9px;
+  }
+
+  .tag.readonly {
+    color: var(--warn, #fbbf24);
+    border-color: color-mix(in srgb, var(--warn, #fbbf24) 45%, transparent);
   }
 
   .mono {

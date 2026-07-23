@@ -35,11 +35,14 @@
     project,
     localPath,
     autoImport = false,
+    canWrite = true,
     onImported,
   }: {
     project: CloudProject;
     localPath: string | null;
     autoImport?: boolean;
+    /** False for another team's project — read-only: history only, no deploy. */
+    canWrite?: boolean;
     onImported?: () => void;
   } = $props();
 
@@ -364,6 +367,7 @@
     {project}
     {onRollback}
     {focusDeployAt}
+    {canWrite}
     onClose={() => {
       showHistory = false;
       focusDeployAt = null;
@@ -371,7 +375,15 @@
   />
 {:else}
 <div class="deploy">
-  {#if !config}
+  {#if !canWrite}
+    <div class="card notice">
+      <p>
+        You're viewing another team's project. It's <strong>read-only</strong>
+        here — browse its files, deploy history and issues below, but deploying,
+        committing and settings are only available to that team.
+      </p>
+    </div>
+  {:else if !config}
     <div class="card notice">
       <p>
         No local folder on this device. Add one under <strong>Settings → Local

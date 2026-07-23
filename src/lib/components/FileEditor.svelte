@@ -7,6 +7,7 @@
     identifier,
     path,
     size,
+    canWrite = true,
     onClose,
     onSaved,
   }: {
@@ -14,6 +15,8 @@
     identifier: string;
     path: string;
     size: number;
+    /** False for another team's project — view the file but can't save. */
+    canWrite?: boolean;
     onClose: () => void;
     onSaved?: () => void;
   } = $props();
@@ -29,7 +32,7 @@
   let error = $state<string | null>(null);
   let readonlyReason = $state<string | null>(null);
 
-  const dirty = $derived(readonlyReason === null && content !== original);
+  const dirty = $derived(canWrite && readonlyReason === null && content !== original);
 
   onMount(async () => {
     if (size > MAX_EDIT_BYTES) {
@@ -79,16 +82,18 @@
   {:else if readonlyReason}
     <p class="muted pad">{readonlyReason}</p>
   {:else}
-    <textarea bind:value={content} spellcheck="false" autocomplete="off"></textarea>
+    <textarea bind:value={content} readonly={!canWrite} spellcheck="false" autocomplete="off"></textarea>
   {/if}
 
   {#if error}<p class="error pad">{error}</p>{/if}
 
   <footer>
-    <span class="muted hint">Editing directly on the server.</span>
+    <span class="muted hint">
+      {canWrite ? "Editing directly on the server." : "Read-only — another team's project."}
+    </span>
     <div class="actions">
       <button class="ghost" onclick={tryClose} disabled={saving}>Close</button>
-      {#if readonlyReason === null}
+      {#if readonlyReason === null && canWrite}
         <button class="primary" onclick={save} disabled={saving || !dirty}>
           {saving ? "Saving…" : "Save"}
         </button>
