@@ -4,7 +4,7 @@
 
 Feather splits cleanly in two: **Panels** is where you run your servers (power, live stats, console across every panel your team uses), and **Projects** is where you plan, track and deploy them. Each project imports a server and gets a GitHub-style page — a Markdown README, an issue tracker, and a **cloud-commit deploy flow**: you work in a local folder, see a live diff against the server, **commit** the changes into a shared **Deploy** that everyone's work bundles into, ship it in one click, and browse a full **Deploys/Commits history** with diffs and one-click **rollback** to any past deploy. Everything is shared through a free cloud backend, so a whole team works from the same picture. The name plays on Pterodactyl's flight theme — its daemon is called [Wings](https://github.com/pterodactyl/wings).
 
-> **Status:** v2.5 — a deploy-model release. A **commit** now records only its *delta* (what changed), and a **deploy** applies the accumulated deltas of the current bundle to the server and **nothing else** — so a deploy is exactly the sum of its commits: different members' changes to different files combine cleanly, and **uncommitted local edits are never shipped**. After a deploy, teammates' folders **sync automatically**, and **rollback** restores a past *deploy* from a full snapshot taken at deploy time. Builds on v2.4's project experience (per-file line diffs, edit-on-server, profiles/team cross-links, disk usage, project logos) and v2.3's cloud-commit foundation. Commit deltas and deploy snapshots live on a dedicated storage backend reached only through a key-holding Edge Function.
+> **Status:** v2.6 — a workflow & polish release. Commits now carry a **name and description**, a commit's file diffs are viewable inside the current Deploy, and the newest commit can be removed again. The server console, project history, file editor and diffs are **full pages** with a **real Back button** that returns to the page you actually came from. Avatars and logos are **uploaded from a file** (not a URL), teams are created through a short **wizard**, members can be added by **email _or_ username**, and **team and user pages show statistics**. It builds on v2.5's delta deploy model — a **commit** records only its *delta* and a **deploy** ships exactly the accumulated commits and nothing else (uncommitted edits never ship, teammates **auto-sync**, and **rollback** restores a past deploy from a full snapshot) — and v2.4's project experience (per-file line diffs, edit-on-server, profiles/team cross-links, project logos). Commit deltas and deploy snapshots live on a dedicated storage backend reached only through a key-holding Edge Function.
 
 ---
 
@@ -56,12 +56,12 @@ At a glance:
 | Area | What you get |
 |---|---|
 | **Accounts & teams** | Email sign-in; a team is the shared unit for everything below |
-| **Members & roles** | Invite teammates by email; the **owner** grants/revokes **admin** rights; owner protected |
-| **Profiles** | GitHub-style pages for every account and team, cross-linked: profile ⇄ teams ⇄ members ⇄ projects (logo, location, website, Markdown README) |
+| **Members & roles** | Add teammates by **email or username**; the **owner** grants/revokes **admin** rights; owner protected |
+| **Profiles & stats** | GitHub-style pages for every account and team, cross-linked (profile ⇄ teams ⇄ members ⇄ projects), with **file-uploaded** avatars/logos and a **statistics** row |
 | **Panels** | Several Pterodactyl connections per team, API keys **encrypted at rest**, all connected at once |
 | **Panels tab** | Every server of every panel: power, live CPU/RAM/**disk**, streamed console; servers with a project are marked and **click straight to it** |
 | **Projects** | Import a server → its own page for planning, issues, deploys and files; give it a **logo** |
-| **Cloud commits** | Live diff local-vs-server **and** an uncommitted-vs-last-commit view; each commit records its **delta** into a **shared Deploy** everyone's work bundles into |
+| **Cloud commits** | Live diff local-vs-server **and** an uncommitted-vs-last-commit view; each commit has a **name and description** and records its **delta** into a **shared Deploy** everyone's work bundles into, with removable newest commit and per-commit diffs |
 | **Per-file diffs** | Click any changed file — in the Deploy tab, in commit/deploy history, or in the uncommitted view — for a GitHub-style **line-level** diff |
 | **Deploy** | One click applies the bundle's commits to the server and **nothing else** (uncommitted edits never ship); `.deployignore`, target dir, restart/notify, pre-deploy backup |
 | **Auto-sync** | After a deploy, teammates' clean folders pull the new state automatically — everyone stays current |
@@ -100,7 +100,7 @@ At a glance:
                                                             └──────────────────────────┘
 ```
 
-The **cloud never sees your plaintext API keys**, and Supabase stores only shared *metadata* — never your project files. Panel keys are decrypted for you (a team member) and handed to the Rust core **in memory only**. Which local folder a project deploys from is a **per-device binding** (each teammate picks their own, or none). Commit **snapshots** (the only file bytes Feather stores) go to a dedicated **storage backend** reached exclusively through the **`feather-storage`** Edge Function, which is the sole holder of that server's key — see [The storage backend](#the-storage-backend).
+The **cloud never sees your plaintext API keys**, and Supabase stores only shared *metadata* — never your project files. Panel keys are decrypted for you (a team member) and handed to the Rust core **in memory only**. Which local folder a project deploys from is a **per-device binding** (each teammate picks their own, or none). Commit **deltas** and deploy **snapshots** (the only *project* file bytes Feather stores) go to a dedicated **storage backend** reached exclusively through the **`feather-storage`** Edge Function, which is the sole holder of that server's key — see [The storage backend](#the-storage-backend). The one exception is small profile images: avatars and logos upload to a public **`images`** Supabase Storage bucket.
 
 ---
 
@@ -130,7 +130,7 @@ Follow **[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)** step by step. In short you
 
 1. Create a free Supabase project.
 2. Create an encryption secret in Supabase Vault (used to encrypt panel keys).
-3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0013`) in the SQL editor — they create every table, security policy and function.
+3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0016`) in the SQL editor — they create every table, security policy and function, plus a public **`images`** storage bucket for avatars and logos (`0014`).
 4. Deploy the **`feather-storage`** Edge Function and set its `FEATHER_STORAGE_KEY` secret (the storage server's Pterodactyl key) — see [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-storage/README.md). This powers cloud commits and rollback; until it's deployed Feather treats cloud storage as unavailable and deploys still work.
 5. Turn on email login.
 6. Copy your **Project URL** and **anon public key** into `src/lib/supabase.ts` (or hand them to whoever builds the app).
@@ -167,15 +167,15 @@ Feather is account-based. Sign up with an email, display name and password; sign
 
 ### Teams
 
-A team is the unit of collaboration — its panels, projects, commits, deploys and issues are shared by everyone on it. You can belong to several teams and switch between them from the header (**Switch team**). Row-Level Security guarantees you only ever see teams you belong to. The team's creator is its **owner**. When you create a team you can add optional details — location, website, a logo and a Markdown README.
+A team is the unit of collaboration — its panels, projects, commits, deploys and issues are shared by everyone on it. You can belong to several teams and switch between them from the header (**Switch team**). Row-Level Security guarantees you only ever see teams you belong to. The team's creator is its **owner**. Creating a team runs a short **wizard** — its name, then a logo (uploaded from a file), then an "about" Markdown README — so you set it up step by step rather than filling one long form.
 
 ### Members & admin rights
 
-The **Members** tab lists everyone on the team with their name, handle and role (**owner** / **admin** / **member**). Owners and admins can **add a member** by email (they must already have a Feather account) and **remove a member** (the owner is protected). Only the **owner** can grant admin rights — **Make admin** / **Remove admin** — and role changes and team-profile edits are locked to the owner at the database level. Clicking a teammate opens their profile. New members immediately share the team's panels, projects and history.
+The **Members** tab lists everyone on the team with their name, handle, avatar and role (**owner** / **admin** / **member**). Owners and admins can **add a member** by their **email address or their Feather username** (they must already have a Feather account) and **remove a member** (the owner is protected). Only the **owner** can grant admin rights — **Make admin** / **Remove admin** — and role changes and team-profile edits are locked to the owner at the database level. Clicking a teammate opens their profile. New members immediately share the team's panels, projects and history.
 
 ### Profiles
 
-Every account and every team has a **profile page** — a GitHub-style overview with a logo/avatar, location, website and a Markdown **README**. Reach them from the account menu (**Your profile**, **Team profile**) or by clicking a teammate in the Members list. You edit your own account profile; a team's page can be edited **only by its owner**.
+Every account and every team has a **profile page** — a GitHub-style overview with a logo/avatar, location, website, a **statistics** row and a Markdown **README**. The user page counts the teams and projects you're part of; the team page counts its projects, members, open issues and total deploys. Avatars and logos are **uploaded from a file on your computer** (stored in the cloud), not pasted as a URL. Reach a profile from the account menu (**Your profile**, **Team profile**) or by clicking a teammate in the Members list. You edit your own account profile; a team's page can be edited **only by its owner**.
 
 Profiles and team pages are **cross-linked** so you can explore a team: a user's profile lists the **teams** and **projects** they're part of, and a team page lists all its **members** and the team's **projects** — each one clickable. Hop from a profile to a team, to another member, to one of their projects, without leaving the app. (Row-Level Security keeps this scoped to teams you share, so you only ever see what you're allowed to.)
 
@@ -193,7 +193,7 @@ The **Panels** tab aggregates the servers of **every** connected panel, grouped 
 
 - **Live status, CPU, RAM and disk**, streamed over the Wings websocket (token refresh + auto-reconnect).
 - **Power actions** — start, stop, restart, and a two-click **kill**.
-- **Console** — streamed live output with a command input.
+- **Console** — a full-page live console with streamed output and a command input.
 - **Project shortcuts** — a server that a Feather project imports is marked with a project chip; click it to **jump straight to that project**.
 
 Deploying, history and files are **not** here — they belong to the project. Conversely a project links straight to its imported server's tile here via **Open in Panels ↗** (the tab switches, scrolls to the tile and highlights it).
@@ -229,7 +229,7 @@ The Deploy tab opens with **"Changes since last deploy"** — a live diff of you
 
 Once the Deploy has a commit, a separate **Uncommitted local changes** block appears: the edits you've made *since your last commit*, distinct from the total "changes since last deploy". Its files are clickable too — comparing your last committed state against your working copy — so you always know what still needs committing before the next deploy.
 
-**Commit** your changes with a message (e.g. "Fix login bug"). Feather records just this commit's **delta** — the files it changed since the last commit — uploads it to the [storage backend](#the-storage-backend), and adds it to the project's **current Deploy**: a shared bundle that *every teammate's* commits accumulate into. The current Deploy shows who committed what, so the whole team sees what's queued to ship. Because commits are deltas, two members who change *different* files both land in the next deploy.
+**Commit** your changes with a **name** (e.g. "Fix login bug") and an optional Markdown **description**, written with a rich-text toolbar. Feather records just this commit's **delta** — the files it changed since the last commit — uploads it to the [storage backend](#the-storage-backend), and adds it to the project's **current Deploy**: a shared bundle that *every teammate's* commits accumulate into. The current Deploy shows who committed what, so the whole team sees what's queued to ship. **Click a commit** to see its per-file changes — and each file for a line-level diff — right inside the current Deploy. Made a mistake? The **newest** commit of a Deploy that hasn't shipped yet can be **removed** again (only the newest, since later commits build on earlier ones). Because commits are deltas, two members who change *different* files both land in the next deploy.
 
 ### Deploying
 
@@ -252,6 +252,8 @@ The Deploy tab's **History** has two categories:
 - **Commits** — every commit across the project. A commit's detail shows its own **line-level file diff** and the issues it fixed.
 
 Any changed file is **clickable for a line-level diff**. The **Deploy history** timeline at the bottom of the Deploy tab is clickable too — each row opens the shared history focused on that deploy, so you go from "this deploy happened" straight to its commits and diffs. Everyone on the team sees the same history.
+
+The history, the console, the file editor and every diff open as **full pages** — not slide-in drawers or pop-up modals — each with its own **Back** button. Feather keeps a navigation stack behind the scenes, so **Back always returns to the page you actually came from** (a teammate's profile opened from inside a project returns to that project, not the projects list).
 
 ### Rollback
 
@@ -313,7 +315,7 @@ See [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-
 - **The storage server's key is never in the app.** It lives only in the `feather-storage` Edge Function; the app talks to the function, which authorizes each request and builds every path server-side. The storage server is excluded from all normal Feather server operations.
 - **Keys are never written to local disk.** On your device the decrypted panel keys live in memory only, for the session.
 - **Row-Level Security** is enabled on every table: you only read or write data for teams you belong to. Sensitive actions (creating teams, encrypting/decrypting keys, inviting members, changing roles, recording commits/deploys, opening issues, deleting projects) go through `SECURITY DEFINER` database functions that re-check permissions and stamp the acting user server-side, so the client can't forge them.
-- **Supabase never receives your project files** — only metadata. A deploy applies commit deltas from the storage backend and talks to your panel directly; commit deltas and deploy snapshots go to the storage backend through the function.
+- **Supabase never receives your project files** — only metadata (and small profile images in the public `images` bucket). A deploy applies commit deltas from the storage backend and talks to your panel directly; commit deltas and deploy snapshots go to the storage backend through the function.
 - **The anon/public key and Project URL** shipped in the app are safe to embed by design; the database enforces access, not secrecy of those values. The service-role key and database password must never go into the app.
 
 ---
@@ -342,7 +344,7 @@ cargo run -p mock-panel
 | `crates/mock-panel` | A mock of the Pterodactyl client API for tests and local development |
 | `src-tauri` | Tauri 2 shell: window, IPC commands, multiple in-memory panel connections, per-device project-folder bindings |
 | `src` | Svelte 5 + TypeScript frontend (UI, Supabase client, cloud helpers, Markdown renderer, manifest diff) |
-| `supabase/` | SQL migrations (`0001`–`0013`) — schema, Row-Level Security and functions |
+| `supabase/` | SQL migrations (`0001`–`0016`) — schema, Row-Level Security, functions and the `images` storage bucket |
 | `supabase/functions/feather-storage` | The Edge Function that fronts the storage backend (holds the key) |
 | `docs/CLOUD-SETUP.md` | Step-by-step cloud backend setup |
 | `docs/RELEASING.md` | Release & updater-signing process |
@@ -367,6 +369,9 @@ The cloud schema is a set of ordered SQL files in [`supabase/`](supabase/), appl
 | `0011_issue_links.sql` | Link issues to the current Deploy and the fixing commit |
 | `0012_project_logo.sql` | Optional project logo image URL |
 | `0013_server_baseline.sql` | Project-level server-state baseline so the local-vs-server diff is correct right after import |
+| `0014_image_storage.sql` | Public **`images`** storage bucket + policies for file-uploaded avatars and logos |
+| `0015_invite_by_username.sql` | Add members by email **or** username |
+| `0016_commit_details.sql` | Commit **description** column; `delete_commit` (remove the newest commit of a pending Deploy) |
 
 All are idempotent — safe to re-run. Cloud commits also need the [`feather-storage`](supabase/functions/feather-storage/README.md) function deployed.
 

@@ -6,6 +6,53 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-07-23
+
+A workflow and polish release: richer commits, full-page views with a real
+Back button, file-based image uploads, a guided team-creation flow, and
+statistics across team and user pages.
+
+> **New database migrations.** Run `supabase/0014_image_storage.sql`,
+> `supabase/0015_invite_by_username.sql` and `supabase/0016_commit_details.sql`
+> once in the Supabase SQL editor (in order, after 0001–0013). `0014` also
+> creates a public **`images`** storage bucket for avatars and logos. See
+> [docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md).
+
+### Added
+
+- **Add members by email _or_ username.** The "Add member" field accepts either
+  a teammate's email address or their Feather username (migration `0015`).
+- **Commit name and description.** A commit now has a name and an optional
+  Markdown description, written with the rich-text toolbar (migration `0016`).
+- **View a commit's file diffs in the current Deploy.** Each commit in the
+  current Deploy expands to show its per-file changes; click a file for the
+  line-level diff.
+- **Remove a commit from the current Deploy.** The newest commit of a pending
+  Deploy can be removed (LIFO — later commits build on earlier ones).
+- **Upload images from a file.** Avatars and logos (user, team, project) are now
+  chosen from a file on your computer and uploaded to Supabase Storage, instead
+  of pasting a URL (migration `0014`, `images` bucket).
+- **Guided team creation.** Creating a team runs a short wizard — name, then
+  logo, then an "about" README — instead of a single form.
+- **Statistics on team and user pages.** The team page summarises its projects,
+  members, open issues and total deploys; the user page summarises teams and
+  projects. (The project page already carried its own stats.)
+- **Rich-text toolbar on description fields.** Bold, italic, headings, lists,
+  quotes, code and links, on every Markdown description/README editor.
+
+### Changed
+
+- **Full-page views instead of drawers and modals.** The server console, project
+  history/rollback, the server file editor and file diffs are now full pages
+  with their own back button, rather than slide-in drawers or pop-up modals.
+- **A real Back button.** Navigation is backed by a stack, so Back always returns
+  to the page you actually came from — a profile opened from inside a project
+  returns to that project, not the projects list.
+- **Prettier inputs and dropdowns.** Text fields, text areas and select menus
+  share a consistent rounded style with a focus glow and a custom chevron.
+- **Emoji removed** from the interface in favour of plain text and typographic
+  symbols.
+
 ## [2.5.1] — 2026-07-23
 
 A bug-fix release.
@@ -410,6 +457,7 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.6.0]: https://github.com/Timmybott/Feather/releases/tag/v2.6.0
 [2.3.0]: https://github.com/Timmybott/Feather/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Timmybott/Feather/releases/tag/v2.2.0
 [2.1.0]: https://github.com/Timmybott/Feather/releases/tag/v2.1.0

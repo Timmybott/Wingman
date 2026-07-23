@@ -102,19 +102,37 @@ commit that fixed it (`assign_issue_commit`). Also idempotent.
 Then run [`supabase/0012_project_logo.sql`](../supabase/0012_project_logo.sql)
 in a **new query**. It adds a logo image URL to projects. Also idempotent.
 
-Last, run [`supabase/0013_server_baseline.sql`](../supabase/0013_server_baseline.sql)
+Then run [`supabase/0013_server_baseline.sql`](../supabase/0013_server_baseline.sql)
 in a **new query**. It stores a project-level **server-state baseline**
 (`set_server_manifest`, and a `server_manifest` / `release_bundle` that read and
 write it), so the "changes since last deploy" diff is correct immediately after
 you import a server's files instead of showing every file as changed. Also
 idempotent.
 
-> **v2.5 needs no new migration.** The delta-commit / bundle-deploy rework in
-> v2.5 changes only the *storage* format (a commit zip is now a delta, and each
+> **v2.5 needed no new migration.** The delta-commit / bundle-deploy rework in
+> v2.5 changed only the *storage* format (a commit zip is now a delta, and each
 > deploy stores a full rollback snapshot) — the database schema (`0001`–`0013`)
-> is unchanged. If you're upgrading a test setup, start the storage area fresh:
-> older full-snapshot commits aren't compatible with delta deploys. The database
-> is unaffected.
+> was unchanged. If you're upgrading a pre-2.5 test setup, start the storage
+> area fresh: older full-snapshot commits aren't compatible with delta deploys.
+> The database is unaffected.
+
+Then run [`supabase/0014_image_storage.sql`](../supabase/0014_image_storage.sql)
+in a **new query**. It creates a public **`images`** Storage bucket (with
+read-for-all / write-for-authenticated policies) so avatars and logos can be
+**uploaded from a file** instead of pasted as a URL. Also idempotent.
+
+Then run [`supabase/0015_invite_by_username.sql`](../supabase/0015_invite_by_username.sql)
+in a **new query**. It recreates `invite_member` so a teammate can be added by
+their **email address or their Feather username**. Also idempotent.
+
+Last, run [`supabase/0016_commit_details.sql`](../supabase/0016_commit_details.sql)
+in a **new query**. It adds an optional **`description`** to commits and a
+`delete_commit` function that removes the **newest** commit of a Deploy that
+hasn't shipped yet (LIFO). Also idempotent.
+
+> **v2.6 adds three migrations.** Run `0014`, `0015` and `0016` (above) once, in
+> order, after `0001`–`0013`. `0014` also creates the `images` Storage bucket —
+> avatars and logos won't upload until it exists.
 
 ## 3b. Deploy the storage function (cloud commits)
 
