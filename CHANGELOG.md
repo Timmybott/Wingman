@@ -6,6 +6,36 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.6.2] — 2026-07-23
+
+Profile and team pages now show the **whole** picture, not just what you share.
+
+> **New database migration.** Run `supabase/0017_public_read.sql` once in the
+> Supabase SQL editor (after 0001–0016). See
+> [docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md).
+
+### Fixed
+
+- **Profiles only showed teams and projects you shared with the person.** If you
+  and someone were both on team *abc* but they were also on team *xyz*, their
+  profile listed only *abc*. A profile now lists **all** of a person's teams and
+  projects (and a team page shows its real members and projects), because
+  signed-in users can now read teams, projects and their content — Feather is
+  GitHub-like and its projects are open source (migration `0017`).
+
+### Changed
+
+- **Reads are open to any signed-in user; writes are unchanged.** Teams, who's on
+  them, projects, deploy history, commits and issues are readable by anyone
+  signed in, so you can browse another team's work read-only. Creating or
+  changing anything still requires the right membership/role, **panels stay
+  members-only** (they hold the encrypted API keys), and commit/deploy file
+  bytes still download only through the membership-checked storage function.
+- **Opening issues and commenting** on another team's project stay available when
+  you're a **member** of that team; a project you reach purely as an outsider
+  (via a public profile) is **view-only** for issues, so there's no button that
+  would just fail.
+
 ## [2.6.1] — 2026-07-23
 
 A fix-and-feature release: you can now open another team's projects.
@@ -483,6 +513,7 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.6.2]: https://github.com/Timmybott/Feather/releases/tag/v2.6.2
 [2.6.1]: https://github.com/Timmybott/Feather/releases/tag/v2.6.1
 [2.6.0]: https://github.com/Timmybott/Feather/releases/tag/v2.6.0
 [2.3.0]: https://github.com/Timmybott/Feather/releases/tag/v2.3.0

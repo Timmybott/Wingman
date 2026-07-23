@@ -375,3 +375,12 @@ v2.6 politur­t die Oberfläche und den Arbeitsfluss: reichhaltigere Commits, ec
 - `0016` `commits.description` + `delete_commit` (neuesten Commit eines pending-Bündels entfernen).
 
 **Neue Meilensteine (v2.6):** M37 (Emojis entfernen) · M38 (Prettier Inputs + Markdown-Toolbar) · M39 (Bild-Upload) · M40 (Team-Wizard + Einladen per Username) · M41 (Commit-Name/-Beschreibung, -Diffs & -Entfernen) · M42 (Navigations-Stack + Vollbild-Views) · M43 (Statistiken Team/User) · M44 (Version 2.6.0 + Docs) — alle abgeschlossen.
+
+**Read-only Fremd-Projekte (v2.6.1, M45).**
+- Ein Projekt eines *anderen* Teams (dem man auch angehört) war nicht öffenbar („This project is no longer available."), weil der Shell nur die Projekte des aktiven Teams im Speicher hält. Jetzt lädt der Shell es bei Bedarf (`getProject` + Name/Mitglieder/Panel seines Teams) und verbindet dessen Panel in-memory für Datei-Lesezugriff. Ein `canWrite`-Flag zieht sich von `AppShell` durch `ProjectDetail` in alle Unteransichten: erlaubt sind Overview, Files (nur lesen), volle History (Deploys & Commits mit Diffs) und Issues erstellen/kommentieren; gesperrt sind Settings, Deploy, Commit, Import, Rollback, Datei-Bearbeiten und Issues schließen/wieder öffnen. Kein neues Schema.
+
+**Öffentliches Lesen: Profile zeigen das volle Bild (v2.6.2, M46, `supabase/0017`).**
+- Profil-/Team-Seiten zeigten nur die Teams/Projekte, die man mit der Person **teilt** (RLS `is_team_member`). `0017` öffnet **Lesezugriff** für angemeldete Nutzer auf `teams`, `team_members`, `projects`, `deploys`, `deploy_bundles`, `commits`, `issues`, `issue_comments` — Feather ist GitHub-artig und die Projekte sind Open Source. Ein Profil listet damit **alle** Teams/Projekte der Person, und man kann ein fremdes Projekt read-only durchstöbern.
+- **Schreibrechte unverändert**; **Panels bleiben Mitglieder-only** (verschlüsselte Keys), und die Commit-/Deploy-Bytes lädt weiterhin nur die mitgliedschaftsgeprüfte Storage-Function. Der Team-Picker (`listTeams`) filtert nun explizit über die eigenen Mitgliedschaften statt über RLS. Ein zusätzliches `canInteract`-Flag (Mitglied des Projekt-Teams) hält „Issue erstellen/kommentieren" nur dort sichtbar, wo die RPCs es erlauben — ein reiner Außenstehender sieht Issues nur lesend.
+
+**Neue Meilensteine (v2.6-Patches):** M45 (Read-only Fremd-Projekte · 2.6.1) · M46 (Öffentliches Lesen · 2.6.2) — abgeschlossen.

@@ -33,6 +33,7 @@
     members,
     teamName,
     canWrite = true,
+    canInteract = true,
     onBack,
     onChanged,
     onDeleted,
@@ -46,6 +47,9 @@
     teamName: string;
     /** False for a project of another team — everything is read-only. */
     canWrite?: boolean;
+    /** True if the viewer is a member of the project's team (can file/comment
+     *  issues even when it isn't their active team). False for a stranger. */
+    canInteract?: boolean;
     onBack: () => void;
     onChanged: (updated: CloudProject) => void;
     onDeleted: (id: string) => void;
@@ -493,7 +497,7 @@
       </aside>
     </div>
   {:else if tab === "issues"}
-    <IssuesPanel projectId={project.id} {canWrite} {onOpenProfile} />
+    <IssuesPanel projectId={project.id} {canWrite} {canInteract} {onOpenProfile} />
   {:else if tab === "deploy"}
     <DeployPanel {project} {localPath} {autoImport} {canWrite} onImported={() => (autoImport = false)} />
   {:else if tab === "files"}
