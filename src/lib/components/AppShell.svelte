@@ -5,6 +5,8 @@
   import { clearActivePanel, getProjectPath, removeLocalProject, setActivePanel } from "../api";
   import { auth } from "../auth.svelte";
   import {
+    getProject,
+    getTeam,
     listMembers,
     listPanels,
     listProjectDeletions,
@@ -92,14 +94,86 @@
   let managing = $state(false);
   let update = $state<Update | null>(null);
 
+  // A project belonging to another team the user is also on: viewable read-only
+  // (all Feather projects are open source), loaded on demand since the shell
+  // only keeps the active team's projects/panels/members in memory.
+  let foreignProject = $state<CloudProject | null>(null);
+  let foreignMembers = $state<TeamMember[]>([]);
+  let foreignPanels = $state<CloudPanel[]>([]);
+  let foreignTeamName = $state("");
+  let foreignLoading = $state(false);
+  let foreignError = $state<string | null>(null);
+  // The project id we've started (or finished) a foreign load for — guards the
+  // loader effect against re-entry without becoming a dependency loop.
+  let foreignAttemptId = $state<string | null>(null);
+
   const teamId = $derived(teamState.activeTeamId);
   const connectedKey = $derived(connected.map((p) => p.id).join(","));
   const focusServer = $derived(
     current.kind === "panels" ? (current.focusServer ?? null) : null,
   );
-  const activeProject = $derived(
-    current.kind === "project" ? (projects.find((p) => p.id === current.projectId) ?? null) : null,
+  const activeProject = $derived.by(() => {
+    if (current.kind !== "project") return null;
+    const own = projects.find((p) => p.id === current.projectId);
+    if (own) return own;
+    if (foreignProject && foreignProject.id === current.projectId) return foreignProject;
+    return null;
+  });
+  // Writable only for a project of the currently active team. A project from
+  // another team is read-only: view its files, history and issues, comment and
+  // open issues, but never deploy, commit, roll back or change settings.
+  const canWriteProject = $derived(!!activeProject && activeProject.team_id === teamId);
+  const projectMembers = $derived(canWriteProject ? members : foreignMembers);
+  const projectPanels = $derived(canWriteProject ? panels : foreignPanels);
+  const projectTeamName = $derived(
+    canWriteProject ? (teamState.activeTeamName ?? teamName) : foreignTeamName,
   );
+
+  /** Load a project (and just enough context) from another of the user's teams. */
+  async function loadForeignProject(id: string) {
+    foreignLoading = true;
+    foreignError = null;
+    try {
+      const proj = await getProject(id);
+      const [team, tmembers, tpanels] = await Promise.all([
+        getTeam(proj.team_id).catch(() => null),
+        listMembers(proj.team_id).catch(() => [] as TeamMember[]),
+        listPanels(proj.team_id).catch(() => [] as CloudPanel[]),
+      ]);
+      foreignTeamName = team?.name ?? "";
+      foreignMembers = tmembers;
+      foreignPanels = tpanels;
+      // Connect the project's panel (in memory) so its files and server state
+      // are reachable for read-only browsing, if it isn't already connected.
+      if (proj.panel_id && !connected.some((p) => p.id === proj.panel_id)) {
+        const panel = tpanels.find((p) => p.id === proj.panel_id);
+        if (panel) {
+          try {
+            const key = await panelApiKey(panel.id);
+            await setActivePanel(panel.id, panel.base_url, key);
+          } catch (e) {
+            console.error("could not connect foreign panel:", e);
+          }
+        }
+      }
+      foreignProject = proj;
+    } catch (e) {
+      foreignError = String(e instanceof Error ? e.message : e);
+    } finally {
+      foreignLoading = false;
+    }
+  }
+
+  // When a project route points at something outside the active team (and the
+  // active team's projects have finished loading), fetch it read-only.
+  $effect(() => {
+    if (current.kind !== "project") return;
+    const id = current.projectId;
+    if (projects.some((p) => p.id === id) || connecting) return;
+    if (foreignAttemptId === id) return;
+    foreignAttemptId = id;
+    void loadForeignProject(id);
+  });
 
   function onTeamUpdated(team: Team) {
     // Only reflect a rename in the header if it's the currently active team.
@@ -241,9 +315,10 @@
       {#if activeProject}
         <ProjectDetail
           project={activeProject}
-          {panels}
-          {members}
-          {teamName}
+          panels={projectPanels}
+          members={projectMembers}
+          teamName={projectTeamName}
+          canWrite={canWriteProject}
           onBack={back}
           onChanged={onProjectChanged}
           onDeleted={onProjectDeleted}
@@ -251,6 +326,10 @@
           onOpenTeam={openTeamProfile}
           onOpenProfile={openProfile}
         />
+      {:else if connecting || foreignLoading || foreignAttemptId !== current.projectId}
+        <p class="muted center">Loading project…</p>
+      {:else if foreignError}
+        <p class="error center">Couldn't open this project: {foreignError}</p>
       {:else}
         <p class="muted center">This project is no longer available.</p>
       {/if}

@@ -6,9 +6,13 @@
 
   let {
     projectId,
+    canWrite = true,
     onOpenProfile,
   }: {
     projectId: string;
+    /** False for another team's project — issues can be opened and commented
+     *  on (all projects are open source), but not closed or reopened. */
+    canWrite?: boolean;
     onOpenProfile?: (userId: string) => void;
   } = $props();
 
@@ -73,6 +77,7 @@
   <IssueThread
     issue={selected}
     {projectId}
+    {canWrite}
     onBack={() => (selectedId = null)}
     onChanged={load}
   />

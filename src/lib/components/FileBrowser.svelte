@@ -4,7 +4,11 @@
   import type { FileEntry } from "../types";
   import FileEditor from "./FileEditor.svelte";
 
-  let { panelId, identifier }: { panelId: string; identifier: string } = $props();
+  let {
+    panelId,
+    identifier,
+    canWrite = true,
+  }: { panelId: string; identifier: string; canWrite?: boolean } = $props();
 
   let segments = $state<string[]>([]);
   let entries = $state<FileEntry[]>([]);
@@ -89,6 +93,7 @@
     {identifier}
     path={editing.path}
     size={editing.size}
+    {canWrite}
     onSaved={load}
     onClose={() => (editing = null)}
   />
@@ -125,28 +130,32 @@
               <span class="muted size">{formatBytes(entry.size)}</span>
             {/if}
           </button>
-          <button
-            class="delete"
-            class:armed={armedDelete === entry.name}
-            onclick={() => deleteClick(entry)}
-            title="Delete {entry.is_file ? 'file' : 'folder and contents'}"
-          >
-            {armedDelete === entry.name ? "Sure?" : "✕"}
-          </button>
+          {#if canWrite}
+            <button
+              class="delete"
+              class:armed={armedDelete === entry.name}
+              onclick={() => deleteClick(entry)}
+              title="Delete {entry.is_file ? 'file' : 'folder and contents'}"
+            >
+              {armedDelete === entry.name ? "Sure?" : "✕"}
+            </button>
+          {/if}
         </div>
       {/each}
     {/if}
   </div>
 
-  <form class="new-folder" onsubmit={createFolder}>
-    <input
-      bind:value={newFolderName}
-      placeholder="New folder name…"
-      spellcheck="false"
-      autocomplete="off"
-    />
-    <button type="submit" disabled={newFolderName.trim() === ""}>Create</button>
-  </form>
+  {#if canWrite}
+    <form class="new-folder" onsubmit={createFolder}>
+      <input
+        bind:value={newFolderName}
+        placeholder="New folder name…"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <button type="submit" disabled={newFolderName.trim() === ""}>Create</button>
+    </form>
+  {/if}
 </div>
 {/if}
 

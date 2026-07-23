@@ -6,6 +6,32 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.6.1] — 2026-07-23
+
+A fix-and-feature release: you can now open another team's projects.
+
+### Fixed
+
+- **Viewing another team's project no longer dead-ends.** If you belong to two
+  teams and opened a project of the team you weren't currently in (from your
+  user page), Feather showed *"This project is no longer available."* It now
+  loads that project — read-only.
+
+### Added
+
+- **Read-only cross-team project view.** Because all Feather projects are open
+  source, you can open any project of a team you're on, even one that isn't your
+  active team, and:
+  - browse its **Overview**, **Files** (view only) and full **History** (past
+    deploys and commits with diffs);
+  - **open issues** and **comment** on them, to report bugs from the outside.
+
+  What stays off-limits for another team's project: **Settings**, **Deploy**,
+  **Commit**, **Import from server**, **Rollback**, editing or deleting files,
+  and **closing/reopening** issues or pinning a fixing commit. Such a project is
+  marked **Read-only**, and its panel is connected on demand so its files and
+  server state are reachable.
+
 ## [2.6.0] — 2026-07-23
 
 A workflow and polish release: richer commits, full-page views with a real
@@ -457,6 +483,7 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.6.1]: https://github.com/Timmybott/Feather/releases/tag/v2.6.1
 [2.6.0]: https://github.com/Timmybott/Feather/releases/tag/v2.6.0
 [2.3.0]: https://github.com/Timmybott/Feather/releases/tag/v2.3.0
 [2.2.0]: https://github.com/Timmybott/Feather/releases/tag/v2.2.0

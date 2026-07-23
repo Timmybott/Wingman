@@ -179,6 +179,8 @@ Every account and every team has a **profile page** — a GitHub-style overview 
 
 Profiles and team pages are **cross-linked** so you can explore a team: a user's profile lists the **teams** and **projects** they're part of, and a team page lists all its **members** and the team's **projects** — each one clickable. Hop from a profile to a team, to another member, to one of their projects, without leaving the app. (Row-Level Security keeps this scoped to teams you share, so you only ever see what you're allowed to.)
 
+Opening a project of a team **other than your active one** shows it **read-only** (all Feather projects are open source): you can browse its Overview, Files and full history, and **open issues and comment** to report bugs from the outside — but deploying, committing, rollback, file edits and Settings stay with that project's own team.
+
 ### Panels (encrypted & shared)
 
 A panel is a connection to a Pterodactyl installation. Under **Panels → Manage panels** you add and remove panels; a team can have several and **needs at least one**.

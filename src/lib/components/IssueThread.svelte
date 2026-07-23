@@ -19,11 +19,14 @@
   let {
     issue,
     projectId,
+    canWrite = true,
     onBack,
     onChanged,
   }: {
     issue: Issue;
     projectId: string;
+    /** False for another team's project — comment yes, close/pin no. */
+    canWrite?: boolean;
     onBack: () => void;
     onChanged: () => void;
   } = $props();
@@ -199,7 +202,9 @@
     {/if}
     <div class="link-row">
       <span class="l-label muted">Fixed in</span>
-      {#if allCommits.length > 0}
+      {#if !canWrite}
+        <span class="muted">{linkedCommit ? linkedCommit.message : "— not linked to a commit —"}</span>
+      {:else if allCommits.length > 0}
         <select value={commitId ?? ""} onchange={assign} disabled={assigning}>
           <option value="">— not linked to a commit —</option>
           {#each commitGroups as g (g.key)}
@@ -255,15 +260,19 @@
   <form onsubmit={post}>
     <MarkdownEditor bind:value={newComment} rows={3} placeholder="Leave a comment…" />
     <div class="form-actions">
-      <button
-        type="button"
-        class="ghost toggle"
-        class:reopen={status === "closed"}
-        onclick={toggleStatus}
-        disabled={toggling}
-      >
-        {status === "open" ? "Close issue" : "Reopen issue"}
-      </button>
+      {#if canWrite}
+        <button
+          type="button"
+          class="ghost toggle"
+          class:reopen={status === "closed"}
+          onclick={toggleStatus}
+          disabled={toggling}
+        >
+          {status === "open" ? "Close issue" : "Reopen issue"}
+        </button>
+      {:else}
+        <span></span>
+      {/if}
       <button type="submit" class="primary" disabled={posting || newComment.trim() === ""}>
         {posting ? "Posting…" : "Comment"}
       </button>
