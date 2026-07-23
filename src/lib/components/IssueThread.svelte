@@ -20,13 +20,17 @@
     issue,
     projectId,
     canWrite = true,
+    canInteract = true,
     onBack,
     onChanged,
   }: {
     issue: Issue;
     projectId: string;
-    /** False for another team's project — comment yes, close/pin no. */
+    /** False for another team's project — no close/reopen or pinning a fix. */
     canWrite?: boolean;
+    /** True if the viewer is a member of the team — can comment. False for a
+     *  stranger viewing via a public profile — read-only. */
+    canInteract?: boolean;
     onBack: () => void;
     onChanged: () => void;
   } = $props();
@@ -257,27 +261,31 @@
     {/each}
   {/if}
 
-  <form onsubmit={post}>
-    <MarkdownEditor bind:value={newComment} rows={3} placeholder="Leave a comment…" />
-    <div class="form-actions">
-      {#if canWrite}
-        <button
-          type="button"
-          class="ghost toggle"
-          class:reopen={status === "closed"}
-          onclick={toggleStatus}
-          disabled={toggling}
-        >
-          {status === "open" ? "Close issue" : "Reopen issue"}
+  {#if canInteract}
+    <form onsubmit={post}>
+      <MarkdownEditor bind:value={newComment} rows={3} placeholder="Leave a comment…" />
+      <div class="form-actions">
+        {#if canWrite}
+          <button
+            type="button"
+            class="ghost toggle"
+            class:reopen={status === "closed"}
+            onclick={toggleStatus}
+            disabled={toggling}
+          >
+            {status === "open" ? "Close issue" : "Reopen issue"}
+          </button>
+        {:else}
+          <span></span>
+        {/if}
+        <button type="submit" class="primary" disabled={posting || newComment.trim() === ""}>
+          {posting ? "Posting…" : "Comment"}
         </button>
-      {:else}
-        <span></span>
-      {/if}
-      <button type="submit" class="primary" disabled={posting || newComment.trim() === ""}>
-        {posting ? "Posting…" : "Comment"}
-      </button>
-    </div>
-  </form>
+      </div>
+    </form>
+  {:else}
+    <p class="muted center readonly-note">You can view this issue, but only members of this team can comment.</p>
+  {/if}
 </div>
 
 <style>
@@ -388,6 +396,11 @@
 
   form {
     margin-top: 16px;
+  }
+
+  .readonly-note {
+    margin-top: 16px;
+    font-size: 13px;
   }
 
   .form-actions {

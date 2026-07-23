@@ -123,6 +123,15 @@
   // another team is read-only: view its files, history and issues, comment and
   // open issues, but never deploy, commit, roll back or change settings.
   const canWriteProject = $derived(!!activeProject && activeProject.team_id === teamId);
+  // Opening issues and commenting need actual membership of the project's team
+  // (the RPCs enforce it): the active team, or another of the viewer's teams.
+  // A stranger's project reached via a public profile is view-only.
+  const canInteractProject = $derived.by(() => {
+    if (!activeProject) return false;
+    if (activeProject.team_id === teamId) return true;
+    const uid = auth.user?.id ?? null;
+    return foreignMembers.some((m) => m.user_id === uid);
+  });
   const projectMembers = $derived(canWriteProject ? members : foreignMembers);
   const projectPanels = $derived(canWriteProject ? panels : foreignPanels);
   const projectTeamName = $derived(
@@ -319,6 +328,7 @@
           members={projectMembers}
           teamName={projectTeamName}
           canWrite={canWriteProject}
+          canInteract={canInteractProject}
           onBack={back}
           onChanged={onProjectChanged}
           onDeleted={onProjectDeleted}

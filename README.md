@@ -130,7 +130,7 @@ Follow **[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)** step by step. In short you
 
 1. Create a free Supabase project.
 2. Create an encryption secret in Supabase Vault (used to encrypt panel keys).
-3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0016`) in the SQL editor — they create every table, security policy and function, plus a public **`images`** storage bucket for avatars and logos (`0014`).
+3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0017`) in the SQL editor — they create every table, security policy and function, plus a public **`images`** storage bucket for avatars and logos (`0014`).
 4. Deploy the **`feather-storage`** Edge Function and set its `FEATHER_STORAGE_KEY` secret (the storage server's Pterodactyl key) — see [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-storage/README.md). This powers cloud commits and rollback; until it's deployed Feather treats cloud storage as unavailable and deploys still work.
 5. Turn on email login.
 6. Copy your **Project URL** and **anon public key** into `src/lib/supabase.ts` (or hand them to whoever builds the app).
@@ -177,7 +177,7 @@ The **Members** tab lists everyone on the team with their name, handle, avatar a
 
 Every account and every team has a **profile page** — a GitHub-style overview with a logo/avatar, location, website, a **statistics** row and a Markdown **README**. The user page counts the teams and projects you're part of; the team page counts its projects, members, open issues and total deploys. Avatars and logos are **uploaded from a file on your computer** (stored in the cloud), not pasted as a URL. Reach a profile from the account menu (**Your profile**, **Team profile**) or by clicking a teammate in the Members list. You edit your own account profile; a team's page can be edited **only by its owner**.
 
-Profiles and team pages are **cross-linked** so you can explore a team: a user's profile lists the **teams** and **projects** they're part of, and a team page lists all its **members** and the team's **projects** — each one clickable. Hop from a profile to a team, to another member, to one of their projects, without leaving the app. (Row-Level Security keeps this scoped to teams you share, so you only ever see what you're allowed to.)
+Profiles and team pages are **cross-linked** so you can explore a team: a user's profile lists **all** the **teams** and **projects** they're part of, and a team page lists all its **members** and the team's **projects** — each one clickable. Hop from a profile to a team, to another member, to one of their projects, without leaving the app. (Feather is GitHub-like and its projects are open source, so any signed-in user can read teams, projects and their content — you see the person's full picture, not just teams you happen to share. Writes stay restricted, and panel API keys are never exposed.)
 
 Opening a project of a team **other than your active one** shows it **read-only** (all Feather projects are open source): you can browse its Overview, Files and full history, and **open issues and comment** to report bugs from the outside — but deploying, committing, rollback, file edits and Settings stay with that project's own team.
 
@@ -316,7 +316,7 @@ See [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-
 - **API keys are encrypted at rest** in the cloud (a master key in Supabase Vault) and only ever decrypted for verified team members through database functions that check membership first.
 - **The storage server's key is never in the app.** It lives only in the `feather-storage` Edge Function; the app talks to the function, which authorizes each request and builds every path server-side. The storage server is excluded from all normal Feather server operations.
 - **Keys are never written to local disk.** On your device the decrypted panel keys live in memory only, for the session.
-- **Row-Level Security** is enabled on every table: you only read or write data for teams you belong to. Sensitive actions (creating teams, encrypting/decrypting keys, inviting members, changing roles, recording commits/deploys, opening issues, deleting projects) go through `SECURITY DEFINER` database functions that re-check permissions and stamp the acting user server-side, so the client can't forge them.
+- **Row-Level Security** is enabled on every table. **Reads** of teams, members, projects and their content (deploys, commits, issues) are open to any signed-in user — Feather is GitHub-like and its projects are open source — while **writes** are restricted to the right team/role. Panels are the exception: their rows (holding the encrypted API key) stay members-only. Sensitive actions (creating teams, encrypting/decrypting keys, inviting members, changing roles, recording commits/deploys, opening issues, deleting projects) go through `SECURITY DEFINER` database functions that re-check permissions and stamp the acting user server-side, so the client can't forge them.
 - **Supabase never receives your project files** — only metadata (and small profile images in the public `images` bucket). A deploy applies commit deltas from the storage backend and talks to your panel directly; commit deltas and deploy snapshots go to the storage backend through the function.
 - **The anon/public key and Project URL** shipped in the app are safe to embed by design; the database enforces access, not secrecy of those values. The service-role key and database password must never go into the app.
 
@@ -346,7 +346,7 @@ cargo run -p mock-panel
 | `crates/mock-panel` | A mock of the Pterodactyl client API for tests and local development |
 | `src-tauri` | Tauri 2 shell: window, IPC commands, multiple in-memory panel connections, per-device project-folder bindings |
 | `src` | Svelte 5 + TypeScript frontend (UI, Supabase client, cloud helpers, Markdown renderer, manifest diff) |
-| `supabase/` | SQL migrations (`0001`–`0016`) — schema, Row-Level Security, functions and the `images` storage bucket |
+| `supabase/` | SQL migrations (`0001`–`0017`) — schema, Row-Level Security, functions and the `images` storage bucket |
 | `supabase/functions/feather-storage` | The Edge Function that fronts the storage backend (holds the key) |
 | `docs/CLOUD-SETUP.md` | Step-by-step cloud backend setup |
 | `docs/RELEASING.md` | Release & updater-signing process |
@@ -374,6 +374,7 @@ The cloud schema is a set of ordered SQL files in [`supabase/`](supabase/), appl
 | `0014_image_storage.sql` | Public **`images`** storage bucket + policies for file-uploaded avatars and logos |
 | `0015_invite_by_username.sql` | Add members by email **or** username |
 | `0016_commit_details.sql` | Commit **description** column; `delete_commit` (remove the newest commit of a pending Deploy) |
+| `0017_public_read.sql` | Signed-in users can **read** teams, members, projects and their content (profiles show the full picture); writes and panels stay restricted |
 
 All are idempotent — safe to re-run. Cloud commits also need the [`feather-storage`](supabase/functions/feather-storage/README.md) function deployed.
 

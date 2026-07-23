@@ -25,13 +25,26 @@ export interface TeamProfileInput {
   description?: string | null;
 }
 
+/**
+ * The signed-in user's own teams (for the picker and the app gate). Filtered by
+ * their membership rows explicitly — teams are readable by any signed-in user
+ * (supabase/0017), so this must not lean on Row-Level Security to scope it.
+ */
 export async function listTeams(): Promise<Team[]> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const uid = session?.user?.id;
+  if (!uid) return [];
   const { data, error } = await supabase
-    .from("teams")
-    .select(TEAM_COLUMNS)
-    .order("created_at", { ascending: true });
+    .from("team_members")
+    .select(`teams(${TEAM_COLUMNS})`)
+    .eq("user_id", uid);
   if (error) throw new Error(error.message);
-  return (data ?? []) as Team[];
+  return (data ?? [])
+    .map((row) => (row as { teams?: unknown }).teams as Team | null)
+    .filter((t): t is Team => t !== null)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
 export async function getTeam(teamId: string): Promise<Team> {
@@ -413,8 +426,9 @@ export async function uploadImage(
 }
 
 /**
- * Teams a user belongs to that the viewer can see (Row-Level Security limits
- * this to teams the viewer is also on — you see shared teams).
+ * Every team a user belongs to. Readable by any signed-in user
+ * (supabase/0017), so a profile page lists the person's full set of teams — not
+ * only the ones you happen to share with them.
  */
 export async function listUserTeams(userId: string): Promise<Team[]> {
   const { data, error } = await supabase
@@ -427,7 +441,10 @@ export async function listUserTeams(userId: string): Promise<Team[]> {
     .filter((t): t is Team => t !== null);
 }
 
-/** Projects a user created that the viewer can see (RLS: shared teams only). */
+/**
+ * Every project a user created. Readable by any signed-in user (supabase/0017),
+ * so a profile page lists all of them — not only those in teams you share.
+ */
 export async function listUserProjects(userId: string): Promise<CloudProject[]> {
   const { data, error } = await supabase
     .from("projects")

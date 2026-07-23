@@ -7,12 +7,15 @@
   let {
     projectId,
     canWrite = true,
+    canInteract = true,
     onOpenProfile,
   }: {
     projectId: string;
-    /** False for another team's project — issues can be opened and commented
-     *  on (all projects are open source), but not closed or reopened. */
+    /** False for another team's project — issues can't be closed or reopened. */
     canWrite?: boolean;
+    /** True if the viewer is a member of the team: can open issues and comment.
+     *  False for a stranger viewing via a public profile — read-only. */
+    canInteract?: boolean;
     onOpenProfile?: (userId: string) => void;
   } = $props();
 
@@ -78,6 +81,7 @@
     issue={selected}
     {projectId}
     {canWrite}
+    {canInteract}
     onBack={() => (selectedId = null)}
     onChanged={load}
   />
@@ -92,7 +96,7 @@
           ✓ {closedCount} Closed
         </button>
       </div>
-      {#if !showForm}
+      {#if !showForm && canInteract}
         <button class="primary" onclick={() => (showForm = true)}>New issue</button>
       {/if}
     </div>
