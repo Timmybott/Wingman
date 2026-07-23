@@ -186,6 +186,17 @@
         <span class="meta-item muted">Joined {joined(profile.created_at)}</span>
       </div>
 
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num">{teams.length}</span>
+          <span class="stat-label muted">{teams.length === 1 ? "Team" : "Teams"}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{projects.length}</span>
+          <span class="stat-label muted">{projects.length === 1 ? "Project" : "Projects"}</span>
+        </div>
+      </div>
+
       <div class="card readme">
         <div class="card-head"><h2>README</h2></div>
         {#if profile.bio && profile.bio.trim() !== ""}
@@ -308,6 +319,37 @@
 
   .link:hover {
     text-decoration: underline;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+    max-width: 320px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat-num {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .card {
