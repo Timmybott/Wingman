@@ -1,11 +1,6 @@
 <script lang="ts">
-  import {
-    projectDiff,
-    readLocalFile,
-    readServerFile,
-    snapshotFile,
-    uploadCommitDelta,
-  } from "../api";
+  import { projectDiff, readLocalFile, readServerFile, uploadCommitDelta } from "../api";
+  import { fileContentAt } from "../snapshotcontent";
   import {
     anonKey,
     createCommit,
@@ -42,7 +37,6 @@
   // Deploy). Null when there are no commits yet — then "changes since last
   // deploy" already covers everything, so we don't show a second panel.
   let uncommittedDiff = $state<Diff | null>(null);
-  let latestStoredCommitId = $state<string | null>(null);
   // The state a new commit's delta is measured against (server ⊕ prior commits).
   let accumulatedBase = $state<Manifest>({});
   let bundle = $state<DeployBundle | null>(null);
@@ -86,18 +80,22 @@
     }
   }
 
-  /** Open the line diff for an uncommitted path (last commit's snapshot vs local). */
+  /** Open the line diff for an uncommitted path (committed state vs local). */
   async function showUncommittedFileDiff(path: string, change: ChangeKind) {
-    if (!latestStoredCommitId) return;
     openDiff = { path, oldText: "", newText: "", loading: true, error: null };
     try {
       const token = await sessionToken();
-      const [oldText, newText] = await Promise.all([
-        change === "added"
-          ? Promise.resolve("")
-          : snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, latestStoredCommitId, path),
-        change === "deleted" ? Promise.resolve("") : readLocalFile(config, path),
-      ]);
+      const newText = change === "deleted" ? "" : await readLocalFile(config, path);
+      let oldText = "";
+      if (change !== "added") {
+        // The committed version: walk this Deploy's commits for the delta that
+        // wrote the file; if none did, it was inherited from the server.
+        const storedCommits = commits.filter((c) => c.stored);
+        const r = await fileContentAt(storedCommits, 0, path, token, project.id);
+        oldText = r.found
+          ? r.text
+          : await readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path);
+      }
       openDiff = { path, oldText, newText, loading: false, error: null };
     } catch (e) {
       openDiff = {
@@ -148,7 +146,6 @@
       // committed state = the newest stored commit's manifest, or the server
       // state if nothing is committed yet. Uncommitted changes = local vs it.
       const latest = commits.find((c) => c.stored) ?? null;
-      latestStoredCommitId = latest?.id ?? null;
       if (latest) {
         accumulatedBase = await getCommitManifest(latest.id);
         uncommittedDiff = await projectDiff(config, accumulatedBase);

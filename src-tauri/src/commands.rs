@@ -755,7 +755,15 @@ pub async fn upload_commit_delta(
     Ok(SnapshotUpload { files, manifest })
 }
 
-/// One file's text from a commit's stored snapshot (empty if not present).
+/// One file's text from a commit's stored snapshot. `found` is false when the
+/// path is not in that commit's (delta) zip — the caller can then walk back to
+/// the commit that actually wrote it.
+#[derive(serde::Serialize)]
+pub struct SnapshotFile {
+    pub found: bool,
+    pub text: String,
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn snapshot_file(
@@ -765,8 +773,8 @@ pub async fn snapshot_file(
     project_id: String,
     commit_id: String,
     path: String,
-) -> CmdResult<String> {
-    snapshot::snapshot_file(
+) -> CmdResult<SnapshotFile> {
+    let text = snapshot::snapshot_file(
         &endpoint,
         &token,
         &anon_key,
@@ -776,7 +784,11 @@ pub async fn snapshot_file(
         &path,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    Ok(SnapshotFile {
+        found: text.is_some(),
+        text: text.unwrap_or_default(),
+    })
 }
 
 #[tauri::command]

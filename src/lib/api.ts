@@ -307,7 +307,16 @@ export function readLocalFile(project: ProjectConfig, path: string): Promise<str
   return invoke<string>("read_local_file", { project, path });
 }
 
-/** One file's text from a commit's stored snapshot ("" if not present). */
+/**
+ * One file's text from a commit's stored delta. `found` is false when the path
+ * is not in that commit's zip (inherited or removed) — walk back to the commit
+ * that actually wrote it.
+ */
+export interface SnapshotFile {
+  found: boolean;
+  text: string;
+}
+
 export function snapshotFile(
   endpoint: string,
   token: string,
@@ -315,8 +324,8 @@ export function snapshotFile(
   projectId: string,
   commitId: string,
   path: string,
-): Promise<string> {
-  return invoke<string>("snapshot_file", {
+): Promise<SnapshotFile> {
+  return invoke<SnapshotFile>("snapshot_file", {
     endpoint,
     token,
     anonKey,

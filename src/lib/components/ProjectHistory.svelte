@@ -1,21 +1,18 @@
 <script lang="ts">
-  import { snapshotFile } from "../api";
   import {
-    anonKey,
-    getBundleManifest,
     getCommitManifest,
     listBundles,
     listCommits,
     listIssues,
     sessionToken,
-    STORAGE_ENDPOINT,
     type CloudCommit,
     type CloudProject,
     type DeployBundle,
     type Issue,
   } from "../cloud";
   import { diffCounts, diffManifests } from "../diff";
-  import type { Diff } from "../types";
+  import { fileContentAt } from "../snapshotcontent";
+  import type { ChangeKind, Diff } from "../types";
   import FileDiff from "./FileDiff.svelte";
 
   let {
@@ -45,7 +42,9 @@
 
   // Detail state.
   let selected = $state<CloudCommit | DeployBundle | null>(null);
-  let selectedParentId = $state<string | null>(null);
+  // Index of the selected commit in `commits` (newest-first), so per-file diffs
+  // can walk older commits for a file's real content in the delta model.
+  let selectedIndex = $state(-1);
   let detailCommits = $state<CloudCommit[]>([]); // commits in the selected deploy
   let diff = $state<Diff | null>(null);
   let detailLoading = $state(false);
@@ -61,20 +60,28 @@
     error: string | null;
   } | null>(null);
 
-  async function showCommitFileDiff(path: string) {
-    if (view !== "commit" || !asCommit) return;
-    const commitId = asCommit.id;
-    const parentId = selectedParentId;
+  async function showCommitFileDiff(path: string, change: ChangeKind) {
+    if (view !== "commit" || selectedIndex < 0) return;
     openFileDiff = { path, oldText: "", newText: "", loading: true, error: null };
     try {
       const token = await sessionToken();
-      const [newText, oldText] = await Promise.all([
-        snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, commitId, path),
-        parentId
-          ? snapshotFile(STORAGE_ENDPOINT, token, anonKey, project.id, parentId, path)
-          : Promise.resolve(""),
+      // New = the file as of this commit (added/modified live in its delta);
+      // old = the file as of the parent, found by walking older commits.
+      const [newRes, oldRes] = await Promise.all([
+        change === "deleted"
+          ? Promise.resolve({ text: "" })
+          : fileContentAt(commits, selectedIndex, path, token, project.id),
+        change === "added"
+          ? Promise.resolve({ text: "" })
+          : fileContentAt(commits, selectedIndex + 1, path, token, project.id),
       ]);
-      openFileDiff = { path, oldText, newText, loading: false, error: null };
+      openFileDiff = {
+        path,
+        oldText: oldRes.text,
+        newText: newRes.text,
+        loading: false,
+        error: null,
+      };
     } catch (e) {
       openFileDiff = {
         path,
@@ -140,8 +147,8 @@
     try {
       // Diff this commit against the previous commit in the project timeline.
       const idx = commits.findIndex((c) => c.id === commit.id);
+      selectedIndex = idx;
       const parent = idx >= 0 ? commits[idx + 1] : undefined;
-      selectedParentId = parent?.id ?? null;
       const [self, base] = await Promise.all([
         getCommitManifest(commit.id),
         parent ? getCommitManifest(parent.id) : Promise.resolve({}),
@@ -161,15 +168,9 @@
     detailCommits = [];
     detailLoading = true;
     try {
-      const idx = released.findIndex((b) => b.id === bundle.id);
-      const prev = idx >= 0 ? released[idx + 1] : undefined;
-      const [cs, self, base] = await Promise.all([
-        listCommits(project.id, bundle.id),
-        getBundleManifest(bundle.id),
-        prev ? getBundleManifest(prev.id) : Promise.resolve({}),
-      ]);
-      detailCommits = cs;
-      diff = diffManifests(base, self);
+      // A deploy introduces no changes of its own — it's exactly the commits it
+      // shipped, so we only list those (each links to its own diff).
+      detailCommits = await listCommits(project.id, bundle.id);
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
     } finally {
@@ -294,7 +295,7 @@
         <h5>Fixes</h5>
         {@render issueList(commitIssues)}
       {/if}
-      {@render diffBlock(true)}
+      {@render diffBlock()}
     </div>
   {:else if view === "deploy" && asBundle}
     <div class="detail">
@@ -323,8 +324,10 @@
         {@render issueList(deployIssues)}
       {/if}
 
-      <h5>Changes on the server</h5>
-      {@render diffBlock(false)}
+      <p class="muted small note">
+        A deploy ships exactly the commits above — open one to see its file
+        changes.
+      </p>
     </div>
   {/if}
 </div>
@@ -341,7 +344,7 @@
   </ul>
 {/snippet}
 
-{#snippet diffBlock(clickable: boolean)}
+{#snippet diffBlock()}
   {#if detailLoading}
     <p class="muted small">Computing diff…</p>
   {:else if diff}
@@ -357,13 +360,9 @@
       <ul class="files">
         {#each diff.changes as ch (ch.path)}
           <li>
-            {#if clickable}
-              <button class="file {ch.change}" onclick={() => showCommitFileDiff(ch.path)} title="View changes">
-                <span class="fsym">{sym[ch.change]}</span> {ch.path}
-              </button>
-            {:else}
-              <span class="file {ch.change}"><span class="fsym">{sym[ch.change]}</span> {ch.path}</span>
-            {/if}
+            <button class="file {ch.change}" onclick={() => showCommitFileDiff(ch.path, ch.change)} title="View changes">
+              <span class="fsym">{sym[ch.change]}</span> {ch.path}
+            </button>
           </li>
         {/each}
       </ul>
@@ -620,6 +619,10 @@
 
   .small {
     font-size: 12px;
+  }
+
+  .note {
+    margin-top: 14px;
   }
 
   .issues {

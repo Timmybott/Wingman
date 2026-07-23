@@ -375,7 +375,7 @@ pub async fn snapshot_file(
     commit_id: &str,
     kind: &str,
     path: &str,
-) -> Result<String, Error> {
+) -> Result<Option<String>, Error> {
     let bytes = download_snapshot(endpoint, token, anon_key, project_id, commit_id, kind).await?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .map_err(|e| Error::Deploy(format!("open snapshot: {e}")))?;
@@ -387,10 +387,13 @@ pub async fn snapshot_file(
         }
         Err(_) => false,
     };
+    // `None` = the path is not in this snapshot's zip. For a delta that means
+    // the commit did not add/modify this file (it was inherited or removed), so
+    // callers can walk back to the commit that actually wrote it.
     if found {
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
     } else {
-        Ok(String::new())
+        Ok(None)
     }
 }
 
