@@ -21,8 +21,8 @@ pub use deploy::{start_deploy, start_rollback, start_snapshot_rollback, DeployHa
 pub use error::Error;
 pub use git::{ChangedFile, CommitInfo, RepoStatus};
 pub use snapshot::{
-    diff_against, diff_manifests, manifest_of, snapshot_file, snapshot_zip, upload_snapshot,
-    ChangeKind, Diff, FileChange, Manifest,
+    delta_zip, diff_against, diff_manifests, manifest_of, materialize_deltas, snapshot_file,
+    snapshot_zip, upload_snapshot, ChangeKind, CommitDelta, Diff, FileChange, Manifest,
 };
 pub use sync::{read_remote_state, start_pull, PullMode, RemoteState};
 pub use ws::{Outgoing, ServerEvent, ServerSocket};
