@@ -130,7 +130,11 @@
       {#each members as member (member.user_id)}
         <li>
           <button class="who" onclick={() => onOpenProfile(member.user_id)} title="View profile">
-            <span class="avatar">{displayName(member).charAt(0).toUpperCase()}</span>
+            {#if member.avatar_url}
+              <img class="avatar-img" src={member.avatar_url} alt="" />
+            {:else}
+              <span class="avatar">{displayName(member).charAt(0).toUpperCase()}</span>
+            {/if}
             <div class="names">
               <span class="name">
                 {displayName(member)}
@@ -246,16 +250,26 @@
     color: var(--accent);
   }
 
-  .avatar {
+  .avatar,
+  .avatar-img {
     width: 34px;
     height: 34px;
     border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .avatar {
     display: grid;
     place-items: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
     font-weight: 700;
     font-size: 14px;
+  }
+
+  .avatar-img {
+    object-fit: cover;
+    border: 1px solid var(--border);
   }
 
   .names {

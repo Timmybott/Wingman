@@ -126,11 +126,17 @@ Deno.serve(async (req) => {
         return json({ ok: true, bytes: body.byteLength });
       }
       case "get": {
+        // Use a signed download URL, not files/contents: contents is meant for
+        // text and rejects binary/large files (our zips) with HTTP 400.
         const res = await ptero(
-          `api/client/servers/${SERVER_ID}/files/contents?file=${encodeURIComponent(file)}`,
+          `api/client/servers/${SERVER_ID}/files/download?file=${encodeURIComponent(file)}`,
         );
         if (!res.ok) return json({ error: `read failed: ${res.status}` }, res.status);
-        return new Response(res.body, {
+        const signed = (await res.json())?.attributes?.url;
+        if (!signed) return json({ error: "no download url" }, 502);
+        const dl = await fetch(signed);
+        if (!dl.ok) return json({ error: `download failed: ${dl.status}` }, 502);
+        return new Response(dl.body, {
           status: 200,
           headers: { ...CORS, "content-type": "application/octet-stream" },
         });

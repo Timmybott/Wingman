@@ -316,7 +316,7 @@
       <div class="head-text">
         <h1>{project.name}</h1>
         <div class="subline">
-          <button class="team-chip" onclick={onOpenTeam} title="Open the team page">👥 {teamName}</button>
+          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">👥 {teamName}</button>
           {#if panelName}
             <span class="tag">{panelName}</span>
           {/if}
@@ -438,7 +438,7 @@
       <aside class="side">
         <div class="meta-item">
           <span class="label muted">Team</span>
-          <button class="link-btn" onclick={onOpenTeam} title="Open the team page">{teamName} ↗</button>
+          <button class="link-btn" onclick={() => onOpenTeam()} title="Open the team page">{teamName} ↗</button>
         </div>
         <div class="meta-item">
           <span class="label muted">Local folder · this device</span>
