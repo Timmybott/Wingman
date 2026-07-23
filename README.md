@@ -2,9 +2,9 @@
 
 **A cloud-backed, team-collaborative desktop client for [Pterodactyl](https://pterodactyl.io) — think GitHub Desktop crossed with GitHub itself, but for your game servers, bots and self-hosted services.**
 
-Feather splits cleanly in two: **Panels** is where you run your servers (power, live stats, console across every panel your team uses), and **Projects** is where you plan, track and deploy them. Each project imports a server and gets a GitHub-style page — a Markdown README, an issue tracker, and a **cloud-commit deploy flow**: you work in a local folder, see a live diff against the server, commit snapshots into a shared **Deploy** that everyone's work bundles into, ship it in one click, and browse a full **Deploys/Commits history** with diffs and one-click **rollback** to any past commit. Everything is shared through a free cloud backend, so a whole team works from the same picture. The name plays on Pterodactyl's flight theme — its daemon is called [Wings](https://github.com/pterodactyl/wings).
+Feather splits cleanly in two: **Panels** is where you run your servers (power, live stats, console across every panel your team uses), and **Projects** is where you plan, track and deploy them. Each project imports a server and gets a GitHub-style page — a Markdown README, an issue tracker, and a **cloud-commit deploy flow**: you work in a local folder, see a live diff against the server, **commit** the changes into a shared **Deploy** that everyone's work bundles into, ship it in one click, and browse a full **Deploys/Commits history** with diffs and one-click **rollback** to any past deploy. Everything is shared through a free cloud backend, so a whole team works from the same picture. The name plays on Pterodactyl's flight theme — its daemon is called [Wings](https://github.com/pterodactyl/wings).
 
-> **Status:** v2.4 — a project-experience release. Everything inside a project is clearer and more clickable: **per-file line diffs** (see exactly what changed), a distinct **uncommitted-changes** view in the Deploy tab, **clickable Deploy-history rows**, **edit files straight on the server** from the Files tab, **project logos**, cross-linked **profiles and team pages** (teams ⇄ projects ⇄ members), and a **Panels tab** that shows disk usage and jumps to a server's project. Builds on v2.3's **cloud-commit** deploy flow (local diff → commit → shared Deploy → ship → Deploys/Commits history with diffs and rollback), user & team profiles, admin rights, and issues linked to the deploys and commits that fix them. Commit snapshots live on a dedicated storage backend reached only through a key-holding Edge Function.
+> **Status:** v2.5 — a deploy-model release. A **commit** now records only its *delta* (what changed), and a **deploy** applies the accumulated deltas of the current bundle to the server and **nothing else** — so a deploy is exactly the sum of its commits: different members' changes to different files combine cleanly, and **uncommitted local edits are never shipped**. After a deploy, teammates' folders **sync automatically**, and **rollback** restores a past *deploy* from a full snapshot taken at deploy time. Builds on v2.4's project experience (per-file line diffs, edit-on-server, profiles/team cross-links, disk usage, project logos) and v2.3's cloud-commit foundation. Commit deltas and deploy snapshots live on a dedicated storage backend reached only through a key-holding Edge Function.
 
 ---
 
@@ -61,11 +61,12 @@ At a glance:
 | **Panels** | Several Pterodactyl connections per team, API keys **encrypted at rest**, all connected at once |
 | **Panels tab** | Every server of every panel: power, live CPU/RAM/**disk**, streamed console; servers with a project are marked and **click straight to it** |
 | **Projects** | Import a server → its own page for planning, issues, deploys and files; give it a **logo** |
-| **Cloud commits** | Live diff local-vs-server **and** an uncommitted-vs-last-commit view; commit snapshots into a **shared Deploy** everyone's work bundles into |
+| **Cloud commits** | Live diff local-vs-server **and** an uncommitted-vs-last-commit view; each commit records its **delta** into a **shared Deploy** everyone's work bundles into |
 | **Per-file diffs** | Click any changed file — in the Deploy tab, in commit/deploy history, or in the uncommitted view — for a GitHub-style **line-level** diff |
-| **Deploy** | One click ships the Deploy to the server and syncs everyone; `.deployignore`, target dir, restart/notify, pre-deploy backup |
-| **History** | **Deploys** and **Commits** categories with full diffs and per-commit detail pages; Deploy-history rows open their deploy |
-| **Rollback** | Redeploy any past commit's snapshot from the storage backend — without touching your local folder |
+| **Deploy** | One click applies the bundle's commits to the server and **nothing else** (uncommitted edits never ship); `.deployignore`, target dir, restart/notify, pre-deploy backup |
+| **Auto-sync** | After a deploy, teammates' clean folders pull the new state automatically — everyone stays current |
+| **History** | **Deploys** and **Commits** categories; a deploy is exactly its commits, each with a line-level diff |
+| **Rollback** | Restore a past **deploy** in full from a snapshot taken at deploy time — without touching your local folder |
 | **Files** | Browse the server, create/delete, and **edit files in place** — no local copy needed |
 | **Issues** | Per-project tracker linked to the **Deploy** it was filed against and **any commit** that fixed it (open or closed) |
 | **Planning** | Markdown READMEs, issues & comments; interactive `- [ ]` checklists |
@@ -154,7 +155,7 @@ Open the **Projects** tab → **New project**: pick a panel, pick one of its ser
 
 ### 6. Commit and deploy
 
-Linking a local folder already imported the server's current files (or use **Import from server** any time). Edit locally: the **"Changes since last deploy"** panel shows a live diff, and an **Uncommitted local changes** block shows what you've edited since your last commit — click any file for a line-level diff. **Commit** your changes (they join the shared **current Deploy**), then press **Deploy** to ship the Deploy to the server. Everything lands in the project's **History** (Deploys & Commits).
+Linking a local folder already imported the server's current files (or use **Import from server** any time). Edit locally: the **"Changes since last deploy"** panel shows a live diff, and an **Uncommitted local changes** block shows what you've edited since your last commit — click any file for a line-level diff. **Commit** your changes (each commit records its delta into the shared **current Deploy**), then press **Deploy** to apply the whole Deploy — every committed change — to the server. Everything lands in the project's **History** (Deploys & Commits), and teammates' folders sync to the new state automatically.
 
 ---
 
@@ -226,37 +227,35 @@ Deploying pushes a **local folder** to the server, and that folder is chosen **p
 
 The Deploy tab opens with **"Changes since last deploy"** — a live diff of your local folder against the current server state (added `+`, modified `~`, deleted `−`, with an expandable file list). This is computed from lightweight content manifests, so no download is needed. **Click any file** in the list to open a GitHub-style **line-level diff** (the server's version against your local file), so you see exactly what was added, removed or changed.
 
-Once the Deploy has a commit, a separate **Uncommitted local changes** block appears: the edits you've made *since your last commit*, distinct from the total "changes since last deploy". Its files are clickable too — comparing the last commit's snapshot against your working copy — so you always know what still needs committing before the next deploy.
+Once the Deploy has a commit, a separate **Uncommitted local changes** block appears: the edits you've made *since your last commit*, distinct from the total "changes since last deploy". Its files are clickable too — comparing your last committed state against your working copy — so you always know what still needs committing before the next deploy.
 
-**Commit** your changes with a message (e.g. "Commit v2.4.0"). Feather packs your folder into a snapshot, uploads it to the [storage backend](#the-storage-backend), and adds the commit to the project's **current Deploy** — a shared bundle that *every teammate's* commits accumulate into. The current Deploy shows who committed what, so the whole team can see what's queued to ship.
+**Commit** your changes with a message (e.g. "Fix login bug"). Feather records just this commit's **delta** — the files it changed since the last commit — uploads it to the [storage backend](#the-storage-backend), and adds it to the project's **current Deploy**: a shared bundle that *every teammate's* commits accumulate into. The current Deploy shows who committed what, so the whole team sees what's queued to ship. Because commits are deltas, two members who change *different* files both land in the next deploy.
 
 ### Deploying
 
-Press **Deploy** to ship the current Deploy to the server. The proven deploy engine runs the pipeline:
+Press **Deploy** to ship the current Deploy. A deploy applies the bundle's **committed** work to the server and **introduces nothing of its own** — uncommitted local edits are never shipped, and a teammate **without a local folder can deploy just the same**. The engine:
 
-1. **Commit** a git checkpoint of the folder.
-2. **Build** — optionally run a per-project build command first, with streamed output.
-3. **Back up** the server first (optional, on by default). If a backup can't be taken (no slots, or every slot holds a backup Feather didn't create and won't rotate), you get a persistent warning **and** a desktop notification — it never fails silently.
-4. **Pack** the folder into a zip, honouring `.deployignore` (gitignore syntax).
-5. **Upload & extract** through the panel's file API into the chosen **target directory** (server root by default, or a subfolder).
-6. **Reconcile** — files you deleted locally are removed on the server via a manifest diff, so the server mirrors your folder.
-7. **Release the Deploy** — the bundle is marked deployed (recording the server's new state so diffs reset), and a fresh Deploy opens for the next round.
-8. **After deploy** — restart the server or just send a desktop notification, per project. Other teammates' devices [sync](#multi-device-sync) the new state.
+1. **Back up** the server first (optional, on by default). If a backup can't be taken (no slots, or every slot holds a backup Feather didn't create and won't rotate), you get a persistent warning **and** a desktop notification — it never fails silently.
+2. **Gather the bundle** — download the current Deploy's commit deltas from the [storage backend](#the-storage-backend) and overlay them over the server's state, giving the exact set of files to add/update and remove.
+3. **Upload & extract** the changed files through the panel's file API into the chosen **target directory** (server root by default, or a subfolder), and delete the removed ones.
+4. **Snapshot** the full deployed tree as a rollback point (see [Rollback](#rollback)).
+5. **Release the Deploy** — the bundle is marked deployed (recording the server's new state so diffs reset), and a fresh Deploy opens for the next round.
+6. **After deploy** — restart the server or just send a desktop notification, per project. Teammates' devices [sync](#multi-device-sync) the new state automatically.
 
-Live progress (`Backing up… · Uploading 68%…`) shows on the tab. **Import from server** does the reverse — pulls the server's files into your folder — which is the safe way to start before your first commit.
+A deploy needs at least one commit — Feather blocks an empty deploy and asks you to commit first. Live progress (`Backing up… · Uploading 68%…`) shows on the tab. **Import from server** does the reverse — pulls the server's files into your folder — the safe way to start before your first commit.
 
 ### History: Deploys & Commits
 
 The Deploy tab's **History** has two categories:
 
-- **Deploys** — every released Deploy. A deploy's detail page lists the commits it shipped, its file diff against the previous deploy, and the [issues](#issues-linked-to-deploys--commits) raised in that cycle.
-- **Commits** — every commit across the project. A commit's detail page shows its full file diff against the previous commit, the issues it fixed, and a **Rollback** button.
+- **Deploys** — every released Deploy. A deploy's detail lists exactly the **commits it shipped** (a deploy changes nothing on its own) and the [issues](#issues-linked-to-deploys--commits) raised in that cycle, with a **Rollback to this deploy** button.
+- **Commits** — every commit across the project. A commit's detail shows its own **line-level file diff** and the issues it fixed.
 
-In both, any changed file is **clickable for a line-level diff**. The **Deploy history** timeline at the bottom of the Deploy tab is clickable too — each row opens the shared history focused on that deploy, so you go from "this deploy happened" straight to its commits and diffs in one click. Everyone on the team sees the same history.
+Any changed file is **clickable for a line-level diff**. The **Deploy history** timeline at the bottom of the Deploy tab is clickable too — each row opens the shared history focused on that deploy, so you go from "this deploy happened" straight to its commits and diffs. Everyone on the team sees the same history.
 
 ### Rollback
 
-From any commit's detail page, **Rollback** re-deploys that commit's snapshot: Feather downloads the snapshot from the storage backend, extracts it, and runs the normal deploy pipeline from there — **your local folder is never touched**. Because snapshots live in the cloud, any teammate can roll the server back to any commit even without those files locally. Pre-deploy backups still run, so a rollback is itself recoverable.
+Every deploy stores a **complete snapshot** of the deployed tree. From a deploy's detail, **Rollback to this deploy** restores it: Feather downloads that snapshot from the storage backend, extracts it, and runs the deploy pipeline from there (removing files added since) — **your local folder is never touched**. Because snapshots live in the cloud, any teammate can restore a past deploy even without those files locally, and the project's diff baseline is reset to the restored deploy so "changes since last deploy" stays correct. Pre-deploy backups still run, so a rollback is itself recoverable.
 
 ### Files
 
@@ -288,7 +287,7 @@ From **Settings → Danger zone** you get two levels:
 
 ### Multi-device sync
 
-Every deploy writes a small state marker to the server. Other Feather installations that have the same project bound to a local folder poll it and automatically pull new deploys into their folder — as long as their working tree is clean (local uncommitted changes are never overwritten).
+Every deploy writes a small state marker to the server. While a teammate has the project's **Deploy tab** open, Feather watches that marker (on open and every 30 s) and, when it announces a deploy newer than that device has, **pulls the new state into their local folder automatically** — as long as their working tree is clean (uncommitted changes are never overwritten; a banner asks them to commit or discard first, then it syncs on the next check). So after anyone deploys, the rest of the team converges on the latest state without lifting a finger.
 
 ### Auto-updates
 
@@ -298,10 +297,10 @@ Feather ships with a built-in updater fed by GitHub releases. When a new version
 
 ## The storage backend
 
-Commit snapshots and rollback states are the only file bytes Feather stores in the cloud, and they do **not** go to Supabase Storage. Instead they live on a dedicated **Pterodactyl server**, reached exclusively through the **`feather-storage`** Supabase Edge Function:
+Commit **deltas** and per-deploy **snapshots** are the only file bytes Feather stores in the cloud, and they do **not** go to Supabase Storage. Instead they live on a dedicated **Pterodactyl server**, reached exclusively through the **`feather-storage`** Supabase Edge Function:
 
 - **The key stays server-side.** The storage server's Pterodactyl API key lives only in the function's secret store (`FEATHER_STORAGE_KEY`) — never in the app, never in the repo. The desktop app calls the function; the function calls the panel.
-- **The function authorizes every call.** It verifies the caller's Supabase session, confirms they're on the team that owns the referenced project (through Row-Level Security), and **derives the storage path itself** from the ids — `data/<team>/<project>/commits/<commit>.zip` — so a caller can never reach another team's files or the rest of the server. It creates the folder tree on first write.
+- **The function authorizes every call.** It verifies the caller's Supabase session, confirms they're on the team that owns the referenced project (through Row-Level Security), and **derives the storage path itself** from the ids — `data/<team>/<project>/commits/<id>.zip` for commit deltas, `data/<team>/<project>/rollbacks/<bundle>.zip` for deploy snapshots — so a caller can never reach another team's files or the rest of the server. It creates the folder tree on first write.
 - **The storage server is hard-excluded from normal use.** Feather's Rust core filters that specific server out of every server listing and rejects every server-scoped operation against it (details, resources, power, console, files, backups, deploy). Even a user who connects a panel at the same host with a key that can see it can never list, import, browse or deploy to it.
 
 See [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-storage/README.md) to deploy it and set the secret.
@@ -314,7 +313,7 @@ See [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-
 - **The storage server's key is never in the app.** It lives only in the `feather-storage` Edge Function; the app talks to the function, which authorizes each request and builds every path server-side. The storage server is excluded from all normal Feather server operations.
 - **Keys are never written to local disk.** On your device the decrypted panel keys live in memory only, for the session.
 - **Row-Level Security** is enabled on every table: you only read or write data for teams you belong to. Sensitive actions (creating teams, encrypting/decrypting keys, inviting members, changing roles, recording commits/deploys, opening issues, deleting projects) go through `SECURITY DEFINER` database functions that re-check permissions and stamp the acting user server-side, so the client can't forge them.
-- **Supabase never receives your project files** — only metadata. Deploys read local files and talk to your panel directly; commit snapshots go to the storage backend through the function.
+- **Supabase never receives your project files** — only metadata. A deploy applies commit deltas from the storage backend and talks to your panel directly; commit deltas and deploy snapshots go to the storage backend through the function.
 - **The anon/public key and Project URL** shipped in the app are safe to embed by design; the database enforces access, not secrecy of those values. The service-role key and database password must never go into the app.
 
 ---
@@ -339,7 +338,7 @@ cargo run -p mock-panel
 
 | Path | Contents |
 |---|---|
-| `crates/feather-core` | Panel API client, config, git, the deploy engine, commit **snapshots/diffs** and the reserved-**storage** guard — no Tauri dependency, fully testable headless |
+| `crates/feather-core` | Panel API client, config, git, the deploy engine, commit **deltas/diffs**, deploy **snapshots** and the reserved-**storage** guard — no Tauri dependency, fully testable headless |
 | `crates/mock-panel` | A mock of the Pterodactyl client API for tests and local development |
 | `src-tauri` | Tauri 2 shell: window, IPC commands, multiple in-memory panel connections, per-device project-folder bindings |
 | `src` | Svelte 5 + TypeScript frontend (UI, Supabase client, cloud helpers, Markdown renderer, manifest diff) |

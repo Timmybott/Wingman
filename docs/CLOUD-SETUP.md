@@ -109,6 +109,13 @@ write it), so the "changes since last deploy" diff is correct immediately after
 you import a server's files instead of showing every file as changed. Also
 idempotent.
 
+> **v2.5 needs no new migration.** The delta-commit / bundle-deploy rework in
+> v2.5 changes only the *storage* format (a commit zip is now a delta, and each
+> deploy stores a full rollback snapshot) — the database schema (`0001`–`0013`)
+> is unchanged. If you're upgrading a test setup, start the storage area fresh:
+> older full-snapshot commits aren't compatible with delta deploys. The database
+> is unaffected.
+
 ## 3b. Deploy the storage function (cloud commits)
 
 Feather stores commit snapshots and rollbacks as files on a dedicated
