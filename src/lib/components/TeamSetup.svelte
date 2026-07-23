@@ -2,21 +2,28 @@
   import { onMount } from "svelte";
   import { createTeam, listTeams, type Team } from "../cloud";
   import { setActiveTeam } from "../team.svelte";
+  import ImagePicker from "./ImagePicker.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let { onReady }: { onReady: () => void } = $props();
 
   let teams = $state<Team[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let newName = $state("");
+
+  // "pick" = choose an existing team; "create" = run the creation wizard.
+  let mode = $state<"pick" | "create">("pick");
+  const steps = ["Name", "Logo", "About"];
+  let step = $state(0);
   let busy = $state(false);
 
-  // Optional profile fields, revealed on demand.
-  let showDetails = $state(false);
+  let name = $state("");
   let location = $state("");
   let website = $state("");
   let logoUrl = $state("");
   let description = $state("");
+  // Stable id to scope the logo upload before the team exists.
+  const draftId = crypto.randomUUID();
 
   onMount(async () => {
     try {
@@ -33,13 +40,30 @@
     onReady();
   }
 
-  async function create(event: SubmitEvent) {
-    event.preventDefault();
-    if (newName.trim() === "") return;
+  function startCreate() {
+    mode = "create";
+    step = 0;
+    error = null;
+  }
+
+  function back() {
+    if (step > 0) step -= 1;
+    else mode = "pick";
+  }
+
+  function next() {
+    if (step < steps.length - 1) step += 1;
+  }
+
+  async function create() {
+    if (name.trim() === "") {
+      step = 0;
+      return;
+    }
     busy = true;
     error = null;
     try {
-      const team = await createTeam(newName, {
+      const team = await createTeam(name.trim(), {
         location: location.trim() || null,
         website: website.trim() || null,
         logo_url: logoUrl.trim() || null,
@@ -54,58 +78,97 @@
 </script>
 
 <div class="setup">
-  <h2>Choose a team</h2>
-  <p class="muted">
-    A team is where your panels, projects, deploy history and issues are shared.
-    Create one, or pick an existing team you belong to.
-  </p>
+  {#if mode === "pick"}
+    <h2>Choose a team</h2>
+    <p class="muted">
+      A team is where your panels, projects, deploy history and issues are
+      shared. Pick a team you belong to, or create a new one.
+    </p>
 
-  {#if loading}
-    <p class="muted">Loading…</p>
-  {:else}
-    {#if teams.length > 0}
-      <div class="teams">
-        {#each teams as team (team.id)}
-          <button class="team" onclick={() => choose(team)}>
-            <span class="name">{team.name}</span>
-            <span class="muted">Open →</span>
-          </button>
-        {/each}
-      </div>
-      <div class="divider"><span class="muted">or create a new team</span></div>
-    {/if}
-
-    <form onsubmit={create}>
-      <div class="row">
-        <input bind:value={newName} placeholder="New team name" autocomplete="off" disabled={busy} />
-        <button type="submit" class="primary" disabled={busy || newName.trim() === ""}>Create</button>
-      </div>
-
-      <button type="button" class="details-toggle muted" onclick={() => (showDetails = !showDetails)}>
-        {showDetails ? "▾" : "▸"} Add details (optional)
-      </button>
-
-      {#if showDetails}
-        <div class="details">
-          <div class="two">
-            <input bind:value={location} placeholder="Location" autocomplete="off" disabled={busy} />
-            <input bind:value={website} placeholder="Website" autocomplete="off" spellcheck="false" disabled={busy} />
-          </div>
-          <input bind:value={logoUrl} placeholder="Logo image URL" autocomplete="off" spellcheck="false" disabled={busy} />
-          <textarea bind:value={description} rows="4" placeholder="README (Markdown) — what is this team about?" disabled={busy}></textarea>
+    {#if loading}
+      <p class="muted">Loading…</p>
+    {:else}
+      {#if teams.length > 0}
+        <div class="teams">
+          {#each teams as team (team.id)}
+            <button class="team" onclick={() => choose(team)}>
+              {#if team.logo_url}
+                <img class="t-logo" src={team.logo_url} alt="" />
+              {:else}
+                <span class="t-logo placeholder">{team.name.charAt(0).toUpperCase()}</span>
+              {/if}
+              <span class="name">{team.name}</span>
+              <span class="muted go">Open →</span>
+            </button>
+          {/each}
         </div>
       {/if}
-    </form>
+      <button class="primary create" onclick={startCreate}>Create a team</button>
+    {/if}
+  {:else}
+    <div class="wiz-head">
+      <h2>Create a team</h2>
+      <ol class="stepper">
+        {#each steps as label, i (label)}
+          <li class:active={i === step} class:done={i < step}>
+            <span class="num">{i + 1}</span>
+            <span class="lbl">{label}</span>
+          </li>
+        {/each}
+      </ol>
+    </div>
+
+    {#if step === 0}
+      <div class="wiz-step">
+        <div class="field">
+          <label for="w-name">Team name</label>
+          <input id="w-name" bind:value={name} placeholder="e.g. Acme Servers" autocomplete="off" disabled={busy} />
+        </div>
+        <div class="two">
+          <div class="field">
+            <label for="w-loc">Location <span class="muted">(optional)</span></label>
+            <input id="w-loc" bind:value={location} placeholder="e.g. Remote" autocomplete="off" disabled={busy} />
+          </div>
+          <div class="field">
+            <label for="w-web">Website <span class="muted">(optional)</span></label>
+            <input id="w-web" bind:value={website} placeholder="example.com" autocomplete="off" spellcheck="false" disabled={busy} />
+          </div>
+        </div>
+      </div>
+    {:else if step === 1}
+      <div class="wiz-step">
+        <span class="field-label">Team logo <span class="muted">(optional)</span></span>
+        <ImagePicker bind:value={logoUrl} kind="logo" owner={draftId} shape="square" />
+      </div>
+    {:else}
+      <div class="wiz-step">
+        <span class="field-label">README <span class="muted">(optional, Markdown)</span></span>
+        <MarkdownEditor bind:value={description} rows={7} placeholder="What is this team about?" />
+      </div>
+    {/if}
+
+    {#if error}<p class="error">{error}</p>{/if}
+
+    <div class="wiz-actions">
+      <button class="ghost" onclick={back} disabled={busy}>← Back</button>
+      {#if step < steps.length - 1}
+        <button class="primary" onclick={next} disabled={busy || (step === 0 && name.trim() === "")}>
+          Next →
+        </button>
+      {:else}
+        <button class="primary" onclick={create} disabled={busy || name.trim() === ""}>
+          {busy ? "Creating…" : "Create team"}
+        </button>
+      {/if}
+    </div>
   {/if}
 
-  {#if error}
-    <p class="error">{error}</p>
-  {/if}
+  {#if error && mode === "pick"}<p class="error">{error}</p>{/if}
 </div>
 
 <style>
   .setup {
-    max-width: 460px;
+    max-width: 480px;
     margin: 8vh auto 0;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -133,10 +196,10 @@
   .team {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    padding: 12px 14px;
+    padding: 10px 14px;
     text-align: left;
   }
 
@@ -144,54 +207,112 @@
     border-color: var(--accent);
   }
 
+  .t-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .t-logo.placeholder {
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-weight: 700;
+  }
+
   .name {
     font-weight: 600;
-  }
-
-  .divider {
-    text-align: center;
-    font-size: 12px;
-    margin: 8px 0 16px;
-  }
-
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .row {
-    display: flex;
-    gap: 8px;
-  }
-
-  .row input {
     flex: 1;
   }
 
-  .details-toggle {
-    align-self: flex-start;
-    background: transparent;
-    border: none;
-    padding: 0;
+  .go {
     font-size: 12px;
   }
 
-  .details {
+  .create {
+    width: 100%;
+  }
+
+  .wiz-head {
+    margin-bottom: 20px;
+  }
+
+  .stepper {
+    list-style: none;
     display: flex;
-    flex-direction: column;
     gap: 8px;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+
+  .stepper li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .stepper li + li::before {
+    content: "";
+    width: 16px;
+    height: 1px;
+    background: var(--border);
+    margin-right: 2px;
+  }
+
+  .stepper .num {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border);
+    font-size: 11px;
+  }
+
+  .stepper li.active {
+    color: var(--text);
+  }
+
+  .stepper li.active .num {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .stepper li.done .num {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .wiz-step {
+    margin-bottom: 18px;
+    min-height: 120px;
+  }
+
+  .field {
+    margin-bottom: 14px;
   }
 
   .two {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 12px;
   }
 
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
+  .wiz-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  @media (max-width: 520px) {
+    .two {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

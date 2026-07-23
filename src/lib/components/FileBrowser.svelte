@@ -83,6 +83,16 @@
   }
 </script>
 
+{#if editing}
+  <FileEditor
+    {panelId}
+    {identifier}
+    path={editing.path}
+    size={editing.size}
+    onSaved={load}
+    onClose={() => (editing = null)}
+  />
+{:else}
 <div class="browser">
   <nav class="crumbs">
     <button class="crumb" onclick={() => jumpTo(0)}>/</button>
@@ -138,16 +148,6 @@
     <button type="submit" disabled={newFolderName.trim() === ""}>Create</button>
   </form>
 </div>
-
-{#if editing}
-  <FileEditor
-    {panelId}
-    {identifier}
-    path={editing.path}
-    size={editing.size}
-    onSaved={load}
-    onClose={() => (editing = null)}
-  />
 {/if}
 
 <style>

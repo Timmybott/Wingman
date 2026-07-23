@@ -310,11 +310,11 @@ export async function listMembers(teamId: string): Promise<TeamMember[]> {
   });
 }
 
-/** Add an existing Feather account to the team by email (admins only). */
-export async function inviteMember(teamId: string, email: string): Promise<void> {
+/** Add an existing Feather account to the team by email or username (admins only). */
+export async function inviteMember(teamId: string, identifier: string): Promise<void> {
   const { error } = await supabase.rpc("invite_member", {
     p_team: teamId,
-    p_email: email.trim(),
+    p_email: identifier.trim(),
   });
   if (error) throw new Error(error.message);
 }
@@ -390,6 +390,26 @@ export async function updateMyProfile(fields: {
     .single();
   if (error) throw new Error(error.message);
   return data as UserProfile;
+}
+
+/**
+ * Upload an avatar/logo image to the public `images` bucket and return its
+ * public URL (stored in avatar_url / logo_url). `owner` scopes the path
+ * (user/team/project id) so files don't collide. Requires migration `0014`.
+ */
+export async function uploadImage(
+  kind: "avatar" | "logo",
+  owner: string,
+  file: File,
+): Promise<string> {
+  const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const path = `${kind}/${owner}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("images").upload(path, file, {
+    upsert: true,
+    contentType: file.type || undefined,
+  });
+  if (error) throw new Error(error.message);
+  return supabase.storage.from("images").getPublicUrl(path).data.publicUrl;
 }
 
 /**
@@ -678,6 +698,7 @@ export interface CloudCommit {
   bundle_id: string | null;
   author_id: string | null;
   message: string;
+  description: string | null;
   files_count: number | null;
   stored: boolean;
   created_at: string;
@@ -698,14 +719,25 @@ export async function currentBundle(projectId: string): Promise<DeployBundle> {
 
 /** Create a commit in the project's current pending bundle (files/manifest are
  *  filled in later by finalizeCommit, once the snapshot upload succeeds). */
-export async function createCommit(projectId: string, message: string): Promise<CloudCommit> {
+export async function createCommit(
+  projectId: string,
+  message: string,
+  description?: string | null,
+): Promise<CloudCommit> {
   const { data, error } = await supabase.rpc("create_commit", {
     p_project: projectId,
     p_message: message,
     p_files: null,
+    p_description: description ?? null,
   });
   if (error) throw new Error(error.message);
   return (Array.isArray(data) ? data[0] : data) as CloudCommit;
+}
+
+/** Remove the newest commit of the current (pending) Deploy — LIFO only. */
+export async function deleteCommit(commitId: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_commit", { p_commit: commitId });
+  if (error) throw new Error(error.message);
 }
 
 /** Record a commit's file count + manifest and flag its snapshot as stored. */
@@ -797,7 +829,7 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
   let query = supabase
     .from("commits")
     .select(
-      "id, project_id, bundle_id, author_id, message, files_count, stored, created_at, profiles(display_name, username)",
+      "id, project_id, bundle_id, author_id, message, description, files_count, stored, created_at, profiles(display_name, username)",
     )
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
@@ -810,6 +842,7 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
     bundle_id: row.bundle_id,
     author_id: row.author_id,
     message: row.message,
+    description: (row as { description: string | null }).description ?? null,
     files_count: row.files_count,
     stored: row.stored,
     created_at: row.created_at,

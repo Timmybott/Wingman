@@ -52,15 +52,14 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onClose()} />
 
-<button class="backdrop" aria-label="Close console" onclick={onClose}></button>
-<div class="console" role="dialog" aria-modal="true" aria-label="Server console">
+<div class="console">
   <header>
+    <button class="back ghost" onclick={onClose} title="Back (Esc)">← Back</button>
     <div class="title">
       <span class="dot {live.connected ? 'online' : 'offline'}"></span>
       <h3>{server.name}</h3>
       <span class="muted">{live.state ?? "…"}</span>
     </div>
-    <button class="ghost" onclick={onClose} title="Close (Esc)">✕</button>
   </header>
 
   <div class="output" bind:this={output} onscroll={onScroll}>
@@ -91,36 +90,31 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
-    border-radius: 0;
-    cursor: default;
-    z-index: 10;
-  }
-
   .console {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(680px, 92vw);
+    /* Full-page in-flow view that fills the main content area, not a drawer. */
     display: flex;
     flex-direction: column;
+    height: calc(100vh - 150px);
+    min-height: 380px;
+    max-width: 1000px;
+    margin: 0 auto;
     background: var(--bg);
-    border-left: 1px solid var(--border);
-    z-index: 11;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
   }
 
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     padding: 12px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+  }
+
+  .back {
+    flex-shrink: 0;
   }
 
   .title {

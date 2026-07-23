@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { createIssue, listIssues, type Issue } from "../cloud";
   import IssueThread from "./IssueThread.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     projectId,
@@ -101,7 +102,7 @@
         </div>
         <div class="field">
           <label for="i-body">Description <span class="muted">(optional)</span></label>
-          <textarea id="i-body" bind:value={body} rows="4" placeholder="Add more detail…"></textarea>
+          <MarkdownEditor id="i-body" bind:value={body} rows={4} placeholder="Add more detail…" />
         </div>
         <div class="form-actions">
           <button type="button" class="ghost" onclick={() => (showForm = false)} disabled={creating}>Cancel</button>
@@ -116,7 +117,7 @@
       <p class="muted center">Loading issues…</p>
     {:else if visible.length === 0}
       <p class="muted center empty">
-        {filter === "open" ? "No open issues. 🎉" : "No closed issues yet."}
+        {filter === "open" ? "No open issues." : "No closed issues yet."}
       </p>
     {:else}
       <ul class="list">
@@ -132,7 +133,7 @@
               </span>
               {#if issue.comment_count > 0}
                 <span class="comments muted" title="{issue.comment_count} comments">
-                  💬 {issue.comment_count}
+                  {issue.comment_count} {issue.comment_count === 1 ? "comment" : "comments"}
                 </span>
               {/if}
             </button>
@@ -187,12 +188,6 @@
 
   .field {
     margin-bottom: 14px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   .form-actions {

@@ -23,7 +23,9 @@
   import DeployPanel from "./DeployPanel.svelte";
   import FileBrowser from "./FileBrowser.svelte";
   import IssuesPanel from "./IssuesPanel.svelte";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     project,
@@ -304,7 +306,7 @@
 </script>
 
 <div class="detail">
-  <button class="back ghost" onclick={onBack}>← All projects</button>
+  <button class="back ghost" onclick={onBack}>← Back</button>
 
   <header class="project-head">
     <div class="head-main">
@@ -316,7 +318,7 @@
       <div class="head-text">
         <h1>{project.name}</h1>
         <div class="subline">
-          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">👥 {teamName}</button>
+          <button class="team-chip" onclick={() => onOpenTeam()} title="Open the team page">{teamName}</button>
           {#if panelName}
             <span class="tag">{panelName}</span>
           {/if}
@@ -388,7 +390,7 @@
             {/if}
           </div>
           {#if editingDescription}
-            <textarea bind:value={descriptionDraft} rows="10" placeholder="Describe this project — goals, plans, notes, links…&#10;&#10;Markdown supported: # headings, **bold**, - lists, `code`, and&#10;- [ ] checklists you can tick right on the overview"></textarea>
+            <MarkdownEditor bind:value={descriptionDraft} rows={10} placeholder="Describe this project — goals, plans, notes, links…" />
             <p class="hint muted">Markdown supported — headings, lists, code, links, and <code>- [ ]</code> checklists.</p>
             <div class="row-actions">
               <button class="ghost" onclick={() => (editingDescription = false)} disabled={savingDescription}>Cancel</button>
@@ -498,11 +500,11 @@
       </div>
       <div class="field">
         <label for="s-desc">Description</label>
-        <textarea id="s-desc" bind:value={description} rows="4"></textarea>
+        <MarkdownEditor id="s-desc" bind:value={description} rows={4} />
       </div>
       <div class="field">
-        <label for="s-logo">Logo image URL <span class="muted">(optional)</span></label>
-        <input id="s-logo" bind:value={logoUrl} placeholder="https://…/logo.png" spellcheck="false" autocomplete="off" />
+        <span class="field-label">Logo <span class="muted">(optional)</span></span>
+        <ImagePicker bind:value={logoUrl} kind="logo" owner={project.id} shape="square" />
       </div>
 
       <div class="two">
@@ -966,12 +968,6 @@
   .small {
     padding: 3px 10px;
     font-size: 12px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   select {

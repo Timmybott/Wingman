@@ -359,6 +359,17 @@
   }
 </script>
 
+{#if showHistory}
+  <ProjectHistory
+    {project}
+    {onRollback}
+    {focusDeployAt}
+    onClose={() => {
+      showHistory = false;
+      focusDeployAt = null;
+    }}
+  />
+{:else}
 <div class="deploy">
   {#if !config}
     <div class="card notice">
@@ -372,7 +383,7 @@
     {#if syncBlocked}
       <div class="card sync-banner">
         <p>
-          ⬇ A teammate shipped a newer deploy. Commit or discard your local
+          A teammate shipped a newer deploy. Commit or discard your local
           changes and it will sync into this folder automatically.
         </p>
       </div>
@@ -412,7 +423,7 @@
 
       {#if error}<p class="error">{error}</p>{/if}
       {#if backupWarning}
-        <p class="warn" title={backupWarning}>⚠ No backup was made — {backupWarning}</p>
+        <p class="warn" title={backupWarning}>No backup was made — {backupWarning}</p>
       {/if}
     </div>
   {/if}
@@ -445,17 +456,6 @@
     </ul>
   {/if}
 </div>
-
-{#if showHistory}
-  <ProjectHistory
-    {project}
-    {onRollback}
-    {focusDeployAt}
-    onClose={() => {
-      showHistory = false;
-      focusDeployAt = null;
-    }}
-  />
 {/if}
 
 <style>

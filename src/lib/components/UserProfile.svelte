@@ -9,7 +9,9 @@
     type Team,
     type UserProfile,
   } from "../cloud";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     userId,
@@ -143,12 +145,12 @@
           </div>
         </div>
         <div class="field">
-          <label for="p-avatar">Avatar image URL</label>
-          <input id="p-avatar" bind:value={avatarUrl} placeholder="https://…/me.png" autocomplete="off" spellcheck="false" />
+          <span class="field-label">Avatar</span>
+          <ImagePicker bind:value={avatarUrl} kind="avatar" owner={userId} shape="circle" />
         </div>
         <div class="field">
           <label for="p-bio">README <span class="muted">(Markdown)</span></label>
-          <textarea id="p-bio" bind:value={bio} rows="8" placeholder="Tell your team about yourself — # headings, **bold**, - lists, links…"></textarea>
+          <MarkdownEditor id="p-bio" bind:value={bio} rows={8} placeholder="Tell your team about yourself — headings, bold, lists, links…" />
         </div>
         {#if error}<p class="error">{error}</p>{/if}
         <div class="row-actions end">
@@ -175,13 +177,24 @@
       </header>
 
       <div class="meta">
-        {#if profile.location}<span class="meta-item">📍 {profile.location}</span>{/if}
+        {#if profile.location}<span class="meta-item">{profile.location}</span>{/if}
         {#if profile.website && href(profile.website)}
           <a class="meta-item link" href={href(profile.website)} target="_blank" rel="noopener noreferrer">
-            🔗 {hostOf(profile.website)}
+            {hostOf(profile.website)}
           </a>
         {/if}
         <span class="meta-item muted">Joined {joined(profile.created_at)}</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num">{teams.length}</span>
+          <span class="stat-label muted">{teams.length === 1 ? "Team" : "Teams"}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{projects.length}</span>
+          <span class="stat-label muted">{projects.length === 1 ? "Project" : "Projects"}</span>
+        </div>
       </div>
 
       <div class="card readme">
@@ -308,6 +321,37 @@
     text-decoration: underline;
   }
 
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+    max-width: 320px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat-num {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -367,12 +411,6 @@
   .edit h2 {
     margin-bottom: 16px;
     font-size: 16px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   .row-actions {

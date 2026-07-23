@@ -1,6 +1,6 @@
 # Projektspezifikation: Feather — Desktop-Client für Pterodactyl
 
-> Stand: 23. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3; Abschnitt 10.8 = Projekt-Experience: Diffs, Interaktivität & Aufräumen v2.4; **Abschnitt 10.9 = Delta-Commits, Bündel-Deploy, Auto-Sync & Deploy-Rollback v2.5**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
+> Stand: 23. Juli 2026 · Version 0.5 (Abschnitt 10 = Cloud- & Team-Kollaboration v2.1; Abschnitt 10.6 = Panels/Projects-Rework v2.2; Abschnitt 10.7 = Cloud-Commits, Profile & Issue-Verknüpfung v2.3; Abschnitt 10.8 = Projekt-Experience: Diffs, Interaktivität & Aufräumen v2.4; Abschnitt 10.9 = Delta-Commits, Bündel-Deploy, Auto-Sync & Deploy-Rollback v2.5; **Abschnitt 10.10 = Workflow & Politur: Commit-Details, Vollbild-Views, Navigations-Stack, Bild-Upload, Statistiken v2.6**; die Abschnitte 1–9 beschreiben den lokalen v1-Kern)
 
 ---
 
@@ -339,3 +339,39 @@ v2.5 baut das Commit/Deploy-Modell um: Ein **Commit speichert nur sein Delta**, 
 **Kein neues Schema.** Das DB-Modell (`0001`–`0013`) bleibt unverändert; nur das Storage-Zip-Format (Delta statt Voll-Snapshot pro Commit) und die Rollback-Semantik ändern sich. Alt-Commit/Deploy-Historie aus einer früheren Version ist damit inkompatibel (Storage-Bereich frisch beginnen; die Datenbank bleibt unberührt).
 
 **Neue Meilensteine (v2.5):** M32 (Delta-Primitive) · M33 (Bündel-Deploy) · M34 (Delta-Commit + Bündel-Deploy Frontend) · M35 (History: Deploy = Summe der Commits) · M35b (Post-Deploy-Sync) · M35c (Deploy-Rollback via Vollsnapshot) · M36 (Version 2.5.0 + Docs) — alle abgeschlossen.
+
+### 10.10 Workflow & Politur: Commit-Details, Vollbild-Views, Navigations-Stack, Bild-Upload, Statistiken (v2.6)
+
+v2.6 politur­t die Oberfläche und den Arbeitsfluss: reichhaltigere Commits, echte Seiten-Navigation statt Drawer/Modals, Datei-Upload für Bilder, ein geführter Team-Erstellungs-Fluss und Statistiken auf Team-/User-Seiten. Ergänzt die Migrationen `supabase/0014`–`0016` und den öffentlichen Storage-Bucket `images`.
+
+**Commit-Details, -Diffs & -Entfernen (M41).**
+- Ein Commit hat jetzt **Name + optionale Markdown-Beschreibung** (`0016`: Spalte `description`, `create_commit` um Parameter erweitert). Das Commit-Formular nutzt den Rich-Text-Editor.
+- Jeder Commit im aktuellen Deploy ist **aufklappbar** und zeigt seine Datei-Änderungen (Diff gegen die akkumulierte Baseline der vorherigen Commits); Klick auf eine Datei öffnet den Zeilen-Diff.
+- Der **neueste** Commit eines noch nicht deployten Bündels ist **entfernbar** (LIFO — spätere Commits bauen auf früheren auf): `delete_commit` prüft Mitgliedschaft, `pending`-Status und dass es der neueste Commit des Bündels ist.
+
+**Vollbild-Views statt Drawer/Modals & echter Navigations-Stack (M42).**
+- Ein zentraler **Navigations-Stack** in `AppShell` trägt jede Seite (Projekt, User-Profil, Team-Seite, Panels-mit-Fokus); der **Zurück-Button führt immer zur tatsächlich vorherigen Seite** — ein aus einem Projekt geöffnetes Profil kehrt zum Projekt zurück, nicht zur Projektliste. Tab-Klicks setzen den Stack auf ihre Wurzel zurück. Die Projektliste zieht ihre Daten (Projekte, Panels, Mitglieder) jetzt vom Shell.
+- Die vormals eingeschobenen Drawer und Pop-up-Modals sind **Vollbild-Seiten mit eigenem „← Zurück"**: Server-Konsole, Projekt-History/Rollback, Server-Datei-Editor und Datei-Diffs (in Commits, Uncommitted-Ansicht und History).
+
+**Bild-Upload per Datei (M39, Bucket via `0014`).**
+- Avatare und Logos (User, Team, Projekt) werden über einen **Datei-Picker** gewählt und in den öffentlichen Supabase-Storage-Bucket **`images`** geladen (`ImagePicker.svelte`, `uploadImage`), statt eine URL einzufügen. `0014` legt den Bucket + Read-for-all/Write-for-authenticated-Policies an (idempotent).
+
+**Team-Erstellungs-Wizard & Einladen per Username (M40, `0015`).**
+- Team anlegen läuft als **Wizard** (Name → Logo → About) statt als ein Formular (`TeamSetup.svelte`).
+- **Mitglied hinzufügen per E-Mail oder Username:** `0015` baut `invite_member` so um, dass der Bezeichner erst gegen `auth.users` (E-Mail), dann gegen `profiles` (Username) gematcht wird — gleiche Signatur.
+
+**Prettier Eingaben & Markdown-Toolbar (M38).**
+- Einheitlicher Stil für `input`/`textarea`/`select` (abgerundet, Focus-Glow, eigener Dropdown-Chevron). Beschreibungs-/README-Felder nutzen `MarkdownEditor.svelte` mit Toolbar (Fett, Kursiv, Überschrift, Listen, Zitat, Code, Link).
+
+**Statistiken (M43).**
+- **Team-Seite:** Stat-Zeile (Projekte, Mitglieder, aggregierte offene Issues + Deploys über alle Projekte). **User-Seite:** Stat-Zeile (Teams, Projekte). Die Projekt-Seite trug ihre Stat-Zeile bereits.
+
+**Emojis entfernt (M37).**
+- Verbliebene Emoji/Piktogramme in der Oberfläche durch Text bzw. typografische Zeichen ersetzt.
+
+**Cloud-Datenmodell-Erweiterung (`supabase/0014`–`0016`).**
+- `0014` Storage-Bucket `images` + Policies.
+- `0015` `invite_member` per E-Mail **oder** Username.
+- `0016` `commits.description` + `delete_commit` (neuesten Commit eines pending-Bündels entfernen).
+
+**Neue Meilensteine (v2.6):** M37 (Emojis entfernen) · M38 (Prettier Inputs + Markdown-Toolbar) · M39 (Bild-Upload) · M40 (Team-Wizard + Einladen per Username) · M41 (Commit-Name/-Beschreibung, -Diffs & -Entfernen) · M42 (Navigations-Stack + Vollbild-Views) · M43 (Statistiken Team/User) · M44 (Version 2.6.0 + Docs) — alle abgeschlossen.

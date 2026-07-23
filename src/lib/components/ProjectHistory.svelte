@@ -185,6 +185,12 @@
     diff = null;
   }
 
+  /** The header Back button: step back within history, or leave it entirely. */
+  function headerBack() {
+    if (view === "list") onClose();
+    else back();
+  }
+
   function rollbackClick(commitId: string) {
     if (!armed) {
       armed = true;
@@ -220,17 +226,23 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (view === "list" ? onClose() : back())} />
 
-<button class="backdrop" aria-label="Close history" onclick={onClose}></button>
-<div class="drawer" role="dialog" aria-modal="true" aria-label="Project history">
+{#if openFileDiff}
+  <FileDiff
+    path={openFileDiff.path}
+    oldText={openFileDiff.oldText}
+    newText={openFileDiff.newText}
+    loading={openFileDiff.loading}
+    error={openFileDiff.error}
+    onClose={() => (openFileDiff = null)}
+  />
+{:else}
+<div class="history">
   <header>
+    <button class="back ghost" onclick={headerBack} title="Back (Esc)">← Back</button>
     <div class="title">
-      {#if view !== "list"}
-        <button class="ghost tiny" onclick={back}>←</button>
-      {/if}
       <h3>{project.name}</h3>
       <span class="muted">history</span>
     </div>
-    <button class="ghost" onclick={onClose} title="Close (Esc)">✕</button>
   </header>
 
   {#if loading}
@@ -332,6 +344,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 {#snippet issueList(list: Issue[])}
   <ul class="issues">
@@ -371,59 +384,38 @@
   {/if}
 {/snippet}
 
-{#if openFileDiff}
-  <FileDiff
-    path={openFileDiff.path}
-    oldText={openFileDiff.oldText}
-    newText={openFileDiff.newText}
-    loading={openFileDiff.loading}
-    error={openFileDiff.error}
-    onClose={() => (openFileDiff = null)}
-  />
-{/if}
-
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    border: none;
-    border-radius: 0;
-    cursor: default;
-    z-index: 10;
-  }
-
-  .drawer {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(560px, 92vw);
+  .history {
+    /* Full-page in-flow view that fills the main content area, not a drawer. */
     display: flex;
     flex-direction: column;
+    height: calc(100vh - 150px);
+    min-height: 380px;
+    max-width: 760px;
+    margin: 0 auto;
     background: var(--bg);
-    border-left: 1px solid var(--border);
-    z-index: 11;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
   }
 
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
     padding: 12px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+  }
+
+  header .back {
+    flex-shrink: 0;
   }
 
   .title {
     display: flex;
     align-items: baseline;
     gap: 8px;
-  }
-
-  .tiny {
-    padding: 2px 8px;
-    align-self: center;
   }
 
   h3 {

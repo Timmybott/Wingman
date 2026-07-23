@@ -14,6 +14,7 @@
     type IssueStatus,
   } from "../cloud";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     issue,
@@ -252,7 +253,7 @@
   {/if}
 
   <form onsubmit={post}>
-    <textarea bind:value={newComment} rows="3" placeholder="Leave a comment…"></textarea>
+    <MarkdownEditor bind:value={newComment} rows={3} placeholder="Leave a comment…" />
     <div class="form-actions">
       <button
         type="button"
@@ -378,12 +379,6 @@
 
   form {
     margin-top: 16px;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
   }
 
   .form-actions {

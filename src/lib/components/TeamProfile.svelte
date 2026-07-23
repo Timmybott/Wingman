@@ -2,14 +2,20 @@
   import { auth } from "../auth.svelte";
   import {
     getTeam,
+    listDeploys,
+    listIssues,
     listMembers,
     listProjects,
     updateTeam,
     type CloudProject,
+    type DeployEntry,
+    type Issue,
     type Team,
     type TeamMember,
   } from "../cloud";
+  import ImagePicker from "./ImagePicker.svelte";
   import Markdown from "./Markdown.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     teamId,
@@ -30,6 +36,30 @@
   let projects = $state<CloudProject[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+
+  // Aggregate statistics across the team's projects.
+  let statsLoading = $state(false);
+  let openIssues = $state(0);
+  let deployTotal = $state(0);
+
+  async function loadAggregate(projs: CloudProject[]) {
+    statsLoading = true;
+    try {
+      const results = await Promise.all(
+        projs.map(async (p) => {
+          const [iss, dep] = await Promise.all([
+            listIssues(p.id).catch(() => [] as Issue[]),
+            listDeploys(p.id).catch(() => [] as DeployEntry[]),
+          ]);
+          return { open: iss.filter((i) => i.status === "open").length, deploys: dep.length };
+        }),
+      );
+      openIssues = results.reduce((s, r) => s + r.open, 0);
+      deployTotal = results.reduce((s, r) => s + r.deploys, 0);
+    } finally {
+      statsLoading = false;
+    }
+  }
 
   function memberName(m: TeamMember): string {
     return m.display_name?.trim() || m.username || "Unknown";
@@ -52,6 +82,8 @@
     error = null;
     editing = false;
     projects = [];
+    openIssues = 0;
+    deployTotal = 0;
     Promise.all([getTeam(id), listMembers(id).catch(() => [] as TeamMember[])])
       .then(([t, m]) => {
         team = t;
@@ -60,7 +92,10 @@
       .catch((e) => (error = String(e instanceof Error ? e.message : e)))
       .finally(() => (loading = false));
     listProjects(id)
-      .then((p) => (projects = p))
+      .then((p) => {
+        projects = p;
+        void loadAggregate(p);
+      })
       .catch(() => (projects = []));
   });
 
@@ -153,12 +188,12 @@
           </div>
         </div>
         <div class="field">
-          <label for="t-logo">Logo image URL</label>
-          <input id="t-logo" bind:value={logoUrl} placeholder="https://…/logo.png" autocomplete="off" spellcheck="false" />
+          <span class="field-label">Logo</span>
+          <ImagePicker bind:value={logoUrl} kind="logo" owner={teamId} shape="square" />
         </div>
         <div class="field">
           <label for="t-desc">README <span class="muted">(Markdown)</span></label>
-          <textarea id="t-desc" bind:value={description} rows="8" placeholder="What is this team about? # headings, **bold**, - lists, links…"></textarea>
+          <MarkdownEditor id="t-desc" bind:value={description} rows={8} placeholder="What is this team about? Headings, bold, lists, links…" />
         </div>
         {#if error}<p class="error">{error}</p>{/if}
         <div class="row-actions end">
@@ -187,14 +222,33 @@
       </header>
 
       <div class="meta">
-        {#if team.location}<span class="meta-item">📍 {team.location}</span>{/if}
+        {#if team.location}<span class="meta-item">{team.location}</span>{/if}
         {#if team.website && href(team.website)}
           <a class="meta-item link" href={href(team.website)} target="_blank" rel="noopener noreferrer">
-            🔗 {hostOf(team.website)}
+            {hostOf(team.website)}
           </a>
         {/if}
-        <span class="meta-item">👥 {members.length} {members.length === 1 ? "member" : "members"}</span>
+        <span class="meta-item">{members.length} {members.length === 1 ? "member" : "members"}</span>
         <span class="meta-item muted">Created {created(team.created_at)}</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num">{projects.length}</span>
+          <span class="stat-label muted">{projects.length === 1 ? "Project" : "Projects"}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{members.length}</span>
+          <span class="stat-label muted">{members.length === 1 ? "Member" : "Members"}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{statsLoading ? "…" : openIssues}</span>
+          <span class="stat-label muted">Open {openIssues === 1 ? "issue" : "issues"}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">{statsLoading ? "…" : deployTotal}</span>
+          <span class="stat-label muted">{deployTotal === 1 ? "Deploy" : "Deploys"}</span>
+        </div>
       </div>
 
       <div class="card readme">
@@ -330,6 +384,36 @@
     text-decoration: underline;
   }
 
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .stat-num {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -458,12 +542,6 @@
     font-size: 16px;
   }
 
-  textarea {
-    width: 100%;
-    resize: vertical;
-    font: inherit;
-  }
-
   .row-actions {
     display: flex;
     gap: 10px;
@@ -483,6 +561,10 @@
   @media (max-width: 640px) {
     .two {
       grid-template-columns: 1fr;
+    }
+
+    .stats {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>

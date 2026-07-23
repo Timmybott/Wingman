@@ -23,11 +23,10 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onClose()} />
 
-<button class="backdrop" aria-label="Close diff" onclick={onClose}></button>
-<div class="modal" role="dialog" aria-modal="true" aria-label="File diff">
+<div class="diff">
   <header>
+    <button class="back ghost" onclick={onClose} title="Back (Esc)">← Back</button>
     <span class="path mono">{path}</span>
-    <button class="ghost" onclick={onClose} title="Close (Esc)">✕</button>
   </header>
 
   {#if loading}
@@ -46,36 +45,29 @@
 </div>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    border: none;
-    border-radius: 0;
-    cursor: default;
-    z-index: 20;
-  }
-
-  .modal {
-    position: fixed;
-    inset: 5vh 5vw;
+  .diff {
+    /* Full-page in-flow view that fills the main content area, not a modal. */
     display: flex;
     flex-direction: column;
+    height: calc(100vh - 150px);
+    min-height: 380px;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 12px;
-    z-index: 21;
     overflow: hidden;
   }
 
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
     padding: 12px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+  }
+
+  header .back {
+    flex-shrink: 0;
   }
 
   .path {

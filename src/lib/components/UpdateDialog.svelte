@@ -29,7 +29,6 @@
 
 <button class="backdrop" aria-label="Dismiss update" onclick={() => !busy && onLater()}></button>
 <div class="dialog" role="dialog" aria-modal="true" aria-label="Update available">
-  <div class="rocket">🚀</div>
   <h2>Update available</h2>
   <p>
     <strong>Feather {update.version}</strong> is ready to install.
@@ -74,11 +73,6 @@
     padding: 28px;
     text-align: center;
     z-index: 21;
-  }
-
-  .rocket {
-    font-size: 34px;
-    margin-bottom: 8px;
   }
 
   h2 {

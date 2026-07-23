@@ -5,6 +5,7 @@
   import { clearActivePanel, getProjectPath, removeLocalProject, setActivePanel } from "../api";
   import { auth } from "../auth.svelte";
   import {
+    listMembers,
     listPanels,
     listProjectDeletions,
     listProjects,
@@ -12,12 +13,14 @@
     type CloudPanel,
     type CloudProject,
     type Team,
+    type TeamMember,
   } from "../cloud";
   import { teamState } from "../team.svelte";
   import Footer from "./Footer.svelte";
   import Header from "./Header.svelte";
   import MembersScreen from "./MembersScreen.svelte";
   import PanelManager from "./PanelManager.svelte";
+  import ProjectDetail from "./ProjectDetail.svelte";
   import ProjectsScreen from "./ProjectsScreen.svelte";
   import ServersView from "./ServersView.svelte";
   import TeamProfile from "./TeamProfile.svelte";
@@ -36,61 +39,72 @@
     onLogout: () => void;
   } = $props();
 
-  let view = $state<"projects" | "panels" | "members" | "profile" | "team">("projects");
-  // Which user's profile the "profile" view shows (may be someone else's).
-  let profileUserId = $state<string | null>(null);
-  // Which team the "team" view shows (may be another team you belong to).
-  let teamProfileId = $state<string | null>(null);
-  // The tab to return to when leaving a profile/team page.
-  let profileReturn = $state<"projects" | "panels" | "members">("projects");
-  let panels = $state<CloudPanel[]>([]);
-  let connected = $state<CloudPanel[]>([]);
-  let projects = $state<CloudProject[]>([]);
-  let connecting = $state(true);
-  let managing = $state(false);
-  let update = $state<Update | null>(null);
-  // A project to open when switching to the Projects tab (e.g. from a server
-  // tile in Panels). Consumed and cleared by ProjectsScreen.
-  let focusProjectId = $state<string | null>(null);
-  // A pending "reveal this server in the Panels tab" request. Set when the
-  // user clicks through from a project; ServersView scrolls to and highlights
-  // the matching tile. A fresh object each time so repeat clicks re-trigger.
-  let focusServer = $state<{ panelId: string; identifier: string } | null>(null);
+  // A real navigation stack: the last entry is the page on screen, and Back
+  // pops it, so every page returns to wherever it was actually opened from —
+  // a profile opened from a project returns to that project, not the list.
+  type Route =
+    | { kind: "projects" }
+    | { kind: "panels"; focusServer?: { panelId: string; identifier: string } }
+    | { kind: "members" }
+    | { kind: "project"; projectId: string }
+    | { kind: "user"; userId: string }
+    | { kind: "team"; teamId: string };
 
-  /** Jump from a project to its imported server's tile in the Panels tab. */
-  function goToServer(panelId: string, identifier: string) {
-    managing = false;
-    view = "panels";
-    focusServer = { panelId, identifier };
+  let stack = $state<Route[]>([{ kind: "projects" }]);
+  const current = $derived(stack[stack.length - 1]);
+  const canBack = $derived(stack.length > 1);
+
+  function push(route: Route) {
+    stack = [...stack, route];
   }
-
-  /** Remember which main tab we're on so a profile page can return to it. */
-  function rememberReturn() {
-    if (view === "projects" || view === "panels" || view === "members") {
-      profileReturn = view;
-    }
+  function back() {
+    if (stack.length > 1) stack = stack.slice(0, -1);
+  }
+  /** Switch to a top-level tab — resets the stack to that root. */
+  function openTab(kind: "projects" | "panels" | "members") {
+    managing = false;
+    stack = [{ kind }];
   }
 
   function openProfile(userId: string) {
-    rememberReturn();
-    profileUserId = userId;
-    view = "profile";
+    push({ kind: "user", userId });
+  }
+  /** Open a team's page — defaults to the active team. */
+  function openTeamProfile(id?: string) {
+    const t = id ?? teamId;
+    if (t) push({ kind: "team", teamId: t });
+  }
+  function goToProject(projectId: string) {
+    managing = false;
+    push({ kind: "project", projectId });
+  }
+  /** Jump from a project to its imported server's tile in the Panels view. */
+  function goToServer(panelId: string, identifier: string) {
+    managing = false;
+    push({ kind: "panels", focusServer: { panelId, identifier } });
   }
 
-  /** Open a team's profile — defaults to the active team. */
-  function openTeamProfile(id?: string) {
-    rememberReturn();
-    teamProfileId = id ?? teamId ?? null;
-    view = "team";
-  }
+  let panels = $state<CloudPanel[]>([]);
+  let connected = $state<CloudPanel[]>([]);
+  let projects = $state<CloudProject[]>([]);
+  let members = $state<TeamMember[]>([]);
+  let connecting = $state(true);
+  let managing = $state(false);
+  let update = $state<Update | null>(null);
+
+  const teamId = $derived(teamState.activeTeamId);
+  const connectedKey = $derived(connected.map((p) => p.id).join(","));
+  const focusServer = $derived(
+    current.kind === "panels" ? (current.focusServer ?? null) : null,
+  );
+  const activeProject = $derived(
+    current.kind === "project" ? (projects.find((p) => p.id === current.projectId) ?? null) : null,
+  );
 
   function onTeamUpdated(team: Team) {
     // Only reflect a rename in the header if it's the currently active team.
     if (team.id === teamId) teamState.activeTeamName = team.name;
   }
-
-  const teamId = $derived(teamState.activeTeamId);
-  const connectedKey = $derived(connected.map((p) => p.id).join(","));
 
   /** Connect every team panel (decrypt its key, hand it to the core). */
   async function loadAndConnect() {
@@ -120,22 +134,34 @@
       }
       panels = all;
       connected = ok;
-      // Load projects too, so the Panels tab can mark servers that have one.
+      // Load projects and members too: projects mark servers in the Panels view
+      // and back the Projects list, members name a project's creator.
       try {
         projects = await listProjects(teamId);
       } catch {
         projects = [];
+      }
+      try {
+        members = await listMembers(teamId);
+      } catch {
+        members = [];
       }
     } finally {
       connecting = false;
     }
   }
 
-  /** Open the Projects tab focused on a specific project (from a server tile). */
-  function goToProject(projectId: string) {
-    managing = false;
-    focusProjectId = projectId;
-    view = "projects";
+  function onProjectCreated(project: CloudProject) {
+    projects = [...projects, project];
+    push({ kind: "project", projectId: project.id });
+  }
+  function onProjectChanged(updated: CloudProject) {
+    const i = projects.findIndex((p) => p.id === updated.id);
+    if (i >= 0) projects[i] = updated;
+  }
+  function onProjectDeleted(id: string) {
+    projects = projects.filter((p) => p.id !== id);
+    back();
   }
 
   /**
@@ -185,45 +211,61 @@
     {onLogout}
   />
   <nav class="tabs">
-    <button class:active={view === "projects"} onclick={() => (view = "projects")}>Projects</button>
-    <button class:active={view === "panels"} onclick={() => (view = "panels")}>
+    <button class:active={current.kind === "projects"} onclick={() => openTab("projects")}>
+      Projects
+    </button>
+    <button class:active={current.kind === "panels"} onclick={() => openTab("panels")}>
       Panels{#if connected.length > 0}<span class="dot"></span>{/if}
     </button>
-    <button class:active={view === "members"} onclick={() => (view = "members")}>Members</button>
+    <button class:active={current.kind === "members"} onclick={() => openTab("members")}>
+      Members
+    </button>
   </nav>
   <main>
-    {#if view === "profile"}
-      {#if profileUserId}
-        <UserProfile
-          userId={profileUserId}
-          onBack={() => (view = profileReturn)}
-          onOpenTeam={openTeamProfile}
-          onOpenProject={goToProject}
-        />
-      {/if}
-    {:else if view === "team"}
-      {#if teamProfileId}
-        <TeamProfile
-          teamId={teamProfileId}
-          onBack={() => (view = profileReturn)}
-          onUpdated={onTeamUpdated}
-          onOpenProfile={openProfile}
-          onOpenProject={goToProject}
-        />
-      {/if}
-    {:else if view === "projects"}
-      {#if teamId}
-        <ProjectsScreen
-          {teamId}
+    {#if current.kind === "user"}
+      <UserProfile
+        userId={current.userId}
+        onBack={back}
+        onOpenTeam={openTeamProfile}
+        onOpenProject={goToProject}
+      />
+    {:else if current.kind === "team"}
+      <TeamProfile
+        teamId={current.teamId}
+        onBack={back}
+        onUpdated={onTeamUpdated}
+        onOpenProfile={openProfile}
+        onOpenProject={goToProject}
+      />
+    {:else if current.kind === "project"}
+      {#if activeProject}
+        <ProjectDetail
+          project={activeProject}
+          {panels}
+          {members}
           {teamName}
-          openProjectId={focusProjectId}
-          onConsumedFocus={() => (focusProjectId = null)}
+          onBack={back}
+          onChanged={onProjectChanged}
+          onDeleted={onProjectDeleted}
           onOpenServer={goToServer}
           onOpenTeam={openTeamProfile}
           onOpenProfile={openProfile}
         />
+      {:else}
+        <p class="muted center">This project is no longer available.</p>
       {/if}
-    {:else if view === "members"}
+    {:else if current.kind === "projects"}
+      {#if teamId}
+        <ProjectsScreen
+          {teamId}
+          {projects}
+          {panels}
+          loading={connecting}
+          onOpenProject={goToProject}
+          onCreated={onProjectCreated}
+        />
+      {/if}
+    {:else if current.kind === "members"}
       {#if teamId}
         <MembersScreen {teamId} onOpenProfile={openProfile} />
       {/if}
@@ -243,6 +285,7 @@
             panels={connected.map((p) => ({ id: p.id, name: p.name }))}
             {projects}
             {focusServer}
+            onBack={canBack ? back : undefined}
             onManage={() => (managing = true)}
             onOpenProject={goToProject}
           />
