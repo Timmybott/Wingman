@@ -698,6 +698,7 @@ export interface CloudCommit {
   bundle_id: string | null;
   author_id: string | null;
   message: string;
+  description: string | null;
   files_count: number | null;
   stored: boolean;
   created_at: string;
@@ -718,14 +719,25 @@ export async function currentBundle(projectId: string): Promise<DeployBundle> {
 
 /** Create a commit in the project's current pending bundle (files/manifest are
  *  filled in later by finalizeCommit, once the snapshot upload succeeds). */
-export async function createCommit(projectId: string, message: string): Promise<CloudCommit> {
+export async function createCommit(
+  projectId: string,
+  message: string,
+  description?: string | null,
+): Promise<CloudCommit> {
   const { data, error } = await supabase.rpc("create_commit", {
     p_project: projectId,
     p_message: message,
     p_files: null,
+    p_description: description ?? null,
   });
   if (error) throw new Error(error.message);
   return (Array.isArray(data) ? data[0] : data) as CloudCommit;
+}
+
+/** Remove the newest commit of the current (pending) Deploy — LIFO only. */
+export async function deleteCommit(commitId: string): Promise<void> {
+  const { error } = await supabase.rpc("delete_commit", { p_commit: commitId });
+  if (error) throw new Error(error.message);
 }
 
 /** Record a commit's file count + manifest and flag its snapshot as stored. */
@@ -817,7 +829,7 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
   let query = supabase
     .from("commits")
     .select(
-      "id, project_id, bundle_id, author_id, message, files_count, stored, created_at, profiles(display_name, username)",
+      "id, project_id, bundle_id, author_id, message, description, files_count, stored, created_at, profiles(display_name, username)",
     )
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
@@ -830,6 +842,7 @@ export async function listCommits(projectId: string, bundleId?: string): Promise
     bundle_id: row.bundle_id,
     author_id: row.author_id,
     message: row.message,
+    description: (row as { description: string | null }).description ?? null,
     files_count: row.files_count,
     stored: row.stored,
     created_at: row.created_at,

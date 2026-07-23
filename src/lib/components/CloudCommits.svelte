@@ -1,10 +1,12 @@
 <script lang="ts">
   import { projectDiff, readLocalFile, readServerFile, uploadCommitDelta } from "../api";
+  import { diffManifests } from "../diff";
   import { fileContentAt } from "../snapshotcontent";
   import {
     anonKey,
     createCommit,
     currentBundle,
+    deleteCommit,
     finalizeCommit,
     getCommitManifest,
     listCommits,
@@ -18,6 +20,7 @@
   } from "../cloud";
   import type { ChangeKind, Diff, Manifest, ProjectConfig } from "../types";
   import FileDiff from "./FileDiff.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
 
   let {
     project,
@@ -39,13 +42,20 @@
   let uncommittedDiff = $state<Diff | null>(null);
   // The state a new commit's delta is measured against (server ⊕ prior commits).
   let accumulatedBase = $state<Manifest>({});
+  // The server state the current Deploy's first commit builds on.
+  let serverBase = $state<Manifest>({});
   let bundle = $state<DeployBundle | null>(null);
   let commits = $state<CloudCommit[]>([]);
   let loading = $state(true);
   let showFiles = $state(false);
   let showUncommitted = $state(false);
+  // A commit in the current Deploy whose file changes are expanded.
+  let openCommitId = $state<string | null>(null);
+  let openCommitDiff = $state<Diff | null>(null);
+  let removingId = $state<string | null>(null);
 
   let message = $state("");
+  let description = $state("");
   let committing = $state(false);
   let error = $state<string | null>(null);
 
@@ -138,10 +148,13 @@
       storageOk = await storageAvailable();
       if (!storageOk) return;
       const base = await serverManifest(project.id);
+      serverBase = base;
       const [d, b] = await Promise.all([projectDiff(config, base), currentBundle(project.id)]);
       diff = d;
       bundle = b;
       commits = await listCommits(project.id, b.id);
+      openCommitId = null;
+      openCommitDiff = null;
       // The base a new commit's delta is measured against: the accumulated
       // committed state = the newest stored commit's manifest, or the server
       // state if nothing is committed yet. Uncommitted changes = local vs it.
@@ -166,7 +179,7 @@
     committing = true;
     error = null;
     try {
-      const created = await createCommit(project.id, message.trim());
+      const created = await createCommit(project.id, message.trim(), description.trim() || null);
       const token = await sessionToken();
       // Store only this commit's delta (vs the accumulated committed state); the
       // returned manifest is the full resulting tree, recorded so a deploy can
@@ -182,12 +195,80 @@
       );
       await finalizeCommit(created.id, up.files, up.manifest);
       message = "";
+      description = "";
       await load();
       onCommitted?.();
     } catch (e) {
       error = String(e instanceof Error ? e.message : e);
     } finally {
       committing = false;
+    }
+  }
+
+  /** Expand/collapse a current-Deploy commit's file changes (vs its parent). */
+  async function toggleCommit(c: CloudCommit) {
+    if (openCommitId === c.id) {
+      openCommitId = null;
+      openCommitDiff = null;
+      return;
+    }
+    openCommitId = c.id;
+    openCommitDiff = null;
+    try {
+      const idx = commits.findIndex((x) => x.id === c.id);
+      const parent = idx >= 0 && idx + 1 < commits.length ? commits[idx + 1] : null;
+      const [self, base] = await Promise.all([
+        getCommitManifest(c.id),
+        parent ? getCommitManifest(parent.id) : Promise.resolve(serverBase),
+      ]);
+      openCommitDiff = diffManifests(base, self);
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    }
+  }
+
+  /** Open the line diff for one file of a current-Deploy commit. */
+  async function showCommitFileDiff(commitId: string, path: string, change: ChangeKind) {
+    const idx = commits.findIndex((c) => c.id === commitId);
+    if (idx < 0) return;
+    openDiff = { path, oldText: "", newText: "", loading: true, error: null };
+    try {
+      const token = await sessionToken();
+      const newRes =
+        change === "deleted"
+          ? { text: "" }
+          : await fileContentAt(commits, idx, path, token, project.id);
+      let oldText = "";
+      if (change !== "added") {
+        const r = await fileContentAt(commits, idx + 1, path, token, project.id);
+        oldText = r.found
+          ? r.text
+          : await readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path);
+      }
+      openDiff = { path, oldText, newText: newRes.text, loading: false, error: null };
+    } catch (e) {
+      openDiff = {
+        path,
+        oldText: "",
+        newText: "",
+        loading: false,
+        error: String(e instanceof Error ? e.message : e),
+      };
+    }
+  }
+
+  /** Remove the newest commit from the current Deploy (LIFO). */
+  async function removeNewest(c: CloudCommit) {
+    removingId = c.id;
+    error = null;
+    try {
+      await deleteCommit(c.id);
+      await load();
+      onCommitted?.();
+    } catch (e) {
+      error = String(e instanceof Error ? e.message : e);
+    } finally {
+      removingId = null;
     }
   }
 
@@ -282,17 +363,18 @@
     <form class="commit" onsubmit={commit}>
       <input
         bind:value={message}
-        placeholder="Commit message (e.g. Commit v2.4.0)"
+        placeholder="Commit name (e.g. Fix login bug)"
         autocomplete="off"
         disabled={committing}
       />
+      <MarkdownEditor bind:value={description} rows={3} placeholder="Description (optional) — what changed and why…" />
       <button type="submit" class="primary" disabled={committing || message.trim() === ""}>
         {committing ? "Committing…" : "Commit"}
       </button>
     </form>
     <p class="hint muted">
-      A commit snapshots your local folder into the current Deploy. Everyone's
-      commits ship together when someone presses Deploy.
+      A commit records your changes into the current Deploy. Everyone's commits
+      ship together when someone presses Deploy.
     </p>
 
     {#if error}<p class="error small">{error}</p>{/if}
@@ -303,15 +385,47 @@
         <p class="muted small">No commits yet. Commit your changes to add them to the next deploy.</p>
       {:else}
         <ul class="commits">
-          {#each commits as c (c.id)}
+          {#each commits as c, i (c.id)}
             <li>
-              <span class="dot" class:pending={!c.stored}></span>
-              <div class="c-main">
-                <span class="c-msg">{c.message}</span>
-                <span class="c-meta muted">
-                  {actor(c)} · {when(c.created_at)}{#if c.files_count !== null} · {c.files_count} files{/if}
-                </span>
+              <div class="c-row">
+                <span class="dot" class:pending={!c.stored}></span>
+                <button class="c-main" onclick={() => toggleCommit(c)} title="Show file changes">
+                  <span class="c-msg">{c.message}</span>
+                  <span class="c-meta muted">
+                    {actor(c)} · {when(c.created_at)}{#if c.files_count !== null} · {c.files_count} files{/if}
+                  </span>
+                </button>
+                {#if i === 0}
+                  <button
+                    class="ghost remove"
+                    onclick={() => removeNewest(c)}
+                    disabled={removingId === c.id}
+                    title="Remove this commit from the current Deploy"
+                  >
+                    {removingId === c.id ? "Removing…" : "Remove"}
+                  </button>
+                {/if}
               </div>
+              {#if openCommitId === c.id}
+                {#if c.description}
+                  <p class="c-desc muted">{c.description}</p>
+                {/if}
+                {#if openCommitDiff === null}
+                  <p class="muted small pad">Loading changes…</p>
+                {:else if openCommitDiff.changes.length === 0}
+                  <p class="muted small pad">No file changes.</p>
+                {:else}
+                  <ul class="files nested">
+                    {#each openCommitDiff.changes as change (change.path)}
+                      <li>
+                        <button class="file {change.change}" onclick={() => showCommitFileDiff(c.id, change.path, change.change)} title="View changes">
+                          <span class="sym">{sym[change.change]}</span> {change.path}
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              {/if}
             </li>
           {/each}
         </ul>
@@ -490,6 +604,11 @@
 
   .commits li {
     display: flex;
+    flex-direction: column;
+  }
+
+  .c-row {
+    display: flex;
     align-items: flex-start;
     gap: 10px;
   }
@@ -499,7 +618,7 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    margin-top: 4px;
+    margin-top: 6px;
     background: var(--accent);
   }
 
@@ -508,10 +627,20 @@
   }
 
   .c-main {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 1px;
     min-width: 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 4px;
+    text-align: left;
+  }
+
+  .c-main:hover {
+    background: var(--surface-2);
   }
 
   .c-msg {
@@ -521,5 +650,25 @@
 
   .c-meta {
     font-size: 12px;
+  }
+
+  .remove {
+    flex-shrink: 0;
+    color: var(--danger);
+    font-size: 12px;
+  }
+
+  .c-desc {
+    margin: 2px 0 6px 19px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  .files.nested {
+    margin: 4px 0 6px 19px;
+  }
+
+  .pad {
+    margin: 4px 0 6px 19px;
   }
 </style>
