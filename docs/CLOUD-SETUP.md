@@ -130,7 +130,7 @@ in a **new query**. It adds an optional **`description`** to commits and a
 `delete_commit` function that removes the **newest** commit of a Deploy that
 hasn't shipped yet (LIFO). Also idempotent.
 
-Last, run [`supabase/0017_public_read.sql`](../supabase/0017_public_read.sql)
+Then run [`supabase/0017_public_read.sql`](../supabase/0017_public_read.sql)
 in a **new query**. It opens up **reads**: any signed-in user can view teams,
 who's on them, projects, deploy history, commits and issues, so profile and team
 pages show the full picture (all of a person's teams/projects, not just the ones
@@ -138,9 +138,13 @@ you share) and you can browse another team's project read-only. **Writes are
 unchanged**, and **panels stay members-only** (they hold the encrypted API
 keys). Also idempotent.
 
-> **v2.6 adds four migrations.** Run `0014`, `0015`, `0016` and `0017` (above)
-> once, in order, after `0001`–`0013`. `0014` also creates the `images` Storage
-> bucket — avatars and logos won't upload until it exists.
+Last, run [`supabase/0018_deploy_details.sql`](../supabase/0018_deploy_details.sql)
+in a **new query**. It adds an optional **`description`** to a Deploy (alongside
+its name) and recreates `release_bundle` to accept it. Also idempotent.
+
+> **v2.6 adds five migrations.** Run `0014`, `0015`, `0016`, `0017` and `0018`
+> (above) once, in order, after `0001`–`0013`. `0014` also creates the `images`
+> Storage bucket — avatars and logos won't upload until it exists.
 
 ## 3b. Deploy the storage function (cloud commits)
 

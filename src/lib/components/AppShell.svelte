@@ -2,7 +2,14 @@
   import { relaunch } from "@tauri-apps/plugin-process";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { onMount } from "svelte";
-  import { clearActivePanel, getProjectPath, removeLocalProject, setActivePanel } from "../api";
+  import {
+    clearActivePanel,
+    getProjectPath,
+    listProjectPaths,
+    removeLocalProject,
+    setActivePanel,
+  } from "../api";
+  import { checkProject, projectConfig } from "../sync.svelte";
   import { auth } from "../auth.svelte";
   import {
     getProject,
@@ -265,8 +272,35 @@
     }
   }
 
+  /**
+   * App-wide background sync: for every project bound to a local folder on this
+   * device (in the active team, whose panel is connected), check for a newer
+   * team deploy and pull it in when safe. Runs while the app is open — no need
+   * to have the project's Deploy tab open — and once on launch so a teammate
+   * who was offline catches up on start.
+   */
+  async function runSyncSweep() {
+    if (!teamId || connecting) return;
+    let paths: Record<string, string>;
+    try {
+      paths = await listProjectPaths();
+    } catch {
+      return;
+    }
+    for (const project of projects) {
+      const localPath = paths[project.id];
+      if (!localPath || !project.panel_id || !project.server_identifier) continue;
+      void checkProject(projectConfig(project, localPath));
+    }
+  }
+
+  let syncTimer: ReturnType<typeof setInterval> | undefined;
+
   onMount(() => {
-    void loadAndConnect();
+    void (async () => {
+      await loadAndConnect();
+      await runSyncSweep();
+    })();
     void processProjectDeletions();
     void (async () => {
       try {
@@ -275,6 +309,11 @@
         update = null;
       }
     })();
+    // Keep every teammate current while the app is open (foreground or not).
+    syncTimer = setInterval(() => void runSyncSweep(), 25_000);
+    return () => {
+      if (syncTimer) clearInterval(syncTimer);
+    };
   });
 
   async function installUpdate() {

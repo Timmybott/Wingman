@@ -372,13 +372,14 @@
 
     <form class="commit" onsubmit={commit}>
       <input
+        class="name-field"
         bind:value={message}
         placeholder="Commit name (e.g. Fix login bug)"
         autocomplete="off"
         disabled={committing}
       />
-      <MarkdownEditor bind:value={description} rows={3} placeholder="Description (optional) — what changed and why…" />
-      <button type="submit" class="primary" disabled={committing || message.trim() === ""}>
+      <MarkdownEditor bind:value={description} rows={4} placeholder="Description (optional) — what changed and why…" />
+      <button type="submit" class="primary self-end" disabled={committing || message.trim() === ""}>
         {committing ? "Committing…" : "Commit"}
       </button>
     </form>
@@ -570,12 +571,17 @@
 
   .commit {
     display: flex;
+    flex-direction: column;
     gap: 8px;
     margin-top: 12px;
   }
 
-  .commit input {
-    flex: 1;
+  .commit .name-field {
+    width: 100%;
+  }
+
+  .self-end {
+    align-self: flex-end;
   }
 
   .hint {

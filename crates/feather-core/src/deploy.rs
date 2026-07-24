@@ -344,12 +344,21 @@ async fn run_pipeline(
     }
 
     let deployed_at = now_secs();
+    // Content manifest (path → hash) of what we just shipped, so other devices
+    // can tell exactly which files this deploy changed when they sync.
+    let content = {
+        let source = source.to_path_buf();
+        tokio::task::spawn_blocking(move || crate::snapshot::manifest_of(&source))
+            .await
+            .map_err(|e| Error::Deploy(format!("manifest task failed: {e}")))??
+    };
     store.save_deploy_record(
         &project.id,
         &DeployRecord {
             timestamp: deployed_at,
             manifest: manifest.clone(),
             commit: commit.clone(),
+            content: content.clone(),
         },
     )?;
 
@@ -359,7 +368,7 @@ async fn run_pipeline(
         .write_file(
             &project.server_identifier,
             &crate::sync::state_path(&root),
-            crate::sync::state_json(deployed_at, &commit, &manifest),
+            crate::sync::state_json(deployed_at, &commit, &manifest, &content),
         )
         .await;
 
@@ -682,13 +691,14 @@ async fn apply_bundle(
             timestamp: deployed_at,
             manifest: resulting_paths.clone(),
             commit: commit_id.clone(),
+            content: resulting.clone(),
         },
     )?;
     let _ = client
         .write_file(
             &project.server_identifier,
             &crate::sync::state_path(&root),
-            crate::sync::state_json(deployed_at, &commit_id, &resulting_paths),
+            crate::sync::state_json(deployed_at, &commit_id, &resulting_paths, &resulting),
         )
         .await;
 

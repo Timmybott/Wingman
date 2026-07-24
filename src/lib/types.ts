@@ -139,8 +139,11 @@ export interface DeployStatus {
 }
 
 export interface RemoteDeployInfo {
+  /** The server announces a deploy this device hasn't picked up yet. */
   newer: boolean;
-  dirty: boolean;
+  /** Auto-syncing it would overwrite un-deployed local work on a file the
+   *  deploy doesn't change — so it must not run automatically. */
+  conflict: boolean;
 }
 
 /** One entry of a server directory listing. */

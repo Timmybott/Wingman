@@ -130,7 +130,7 @@ Follow **[docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)** step by step. In short you
 
 1. Create a free Supabase project.
 2. Create an encryption secret in Supabase Vault (used to encrypt panel keys).
-3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0017`) in the SQL editor — they create every table, security policy and function, plus a public **`images`** storage bucket for avatars and logos (`0014`).
+3. Run the SQL migrations in [`supabase/`](supabase/) (`0001` … `0018`) in the SQL editor — they create every table, security policy and function, plus a public **`images`** storage bucket for avatars and logos (`0014`).
 4. Deploy the **`feather-storage`** Edge Function and set its `FEATHER_STORAGE_KEY` secret (the storage server's Pterodactyl key) — see [`supabase/functions/feather-storage/README.md`](supabase/functions/feather-storage/README.md). This powers cloud commits and rollback; until it's deployed Feather treats cloud storage as unavailable and deploys still work.
 5. Turn on email login.
 6. Copy your **Project URL** and **anon public key** into `src/lib/supabase.ts` (or hand them to whoever builds the app).
@@ -235,7 +235,7 @@ Once the Deploy has a commit, a separate **Uncommitted local changes** block app
 
 ### Deploying
 
-Press **Deploy** to ship the current Deploy. A deploy applies the bundle's **committed** work to the server and **introduces nothing of its own** — uncommitted local edits are never shipped, and a teammate **without a local folder can deploy just the same**. The engine:
+Press **Deploy** to ship the current Deploy. You can give it an optional **name and Markdown description** (they show up on its history entry), just like a commit. A deploy applies the bundle's **committed** work to the server and **introduces nothing of its own** — uncommitted local edits are never shipped, and a teammate **without a local folder can deploy just the same**. The engine:
 
 1. **Back up** the server first (optional, on by default). If a backup can't be taken (no slots, or every slot holds a backup Feather didn't create and won't rotate), you get a persistent warning **and** a desktop notification — it never fails silently.
 2. **Gather the bundle** — download the current Deploy's commit deltas from the [storage backend](#the-storage-backend) and overlay them over the server's state, giving the exact set of files to add/update and remove.
@@ -291,7 +291,9 @@ From **Settings → Danger zone** you get two levels:
 
 ### Multi-device sync
 
-Every deploy writes a small state marker to the server. While a teammate has the project's **Deploy tab** open, Feather watches that marker (on open and every 30 s) and, when it announces a deploy newer than that device has, **pulls the new state into their local folder automatically** — as long as their working tree is clean (uncommitted changes are never overwritten; a banner asks them to commit or discard first, then it syncs on the next check). So after anyone deploys, the rest of the team converges on the latest state without lifting a finger.
+Every deploy writes a small state marker to the server, including a content manifest of the deployed tree. Feather watches that marker **app-wide** — for every project you've bound to a local folder, while the app is open (you don't need the project's Deploy tab in front of you), and once on launch so anyone who was offline catches up on start. When a teammate ships a newer deploy, it's **pulled into your local folder automatically**.
+
+Because a new deploy is, by definition, different from what you have locally, "different" alone doesn't block the sync. Feather compares file contents and pulls whenever it's safe, holding back **only** when the pull would overwrite an **un-deployed local edit to a file the deploy doesn't change** — that's genuine local work in progress, so instead of clobbering it a banner asks you to commit or deploy it first, and the sync lands on the next check. So after anyone deploys, the rest of the team converges on the latest state without lifting a finger, while your uncommitted work stays safe.
 
 ### Auto-updates
 
@@ -346,7 +348,7 @@ cargo run -p mock-panel
 | `crates/mock-panel` | A mock of the Pterodactyl client API for tests and local development |
 | `src-tauri` | Tauri 2 shell: window, IPC commands, multiple in-memory panel connections, per-device project-folder bindings |
 | `src` | Svelte 5 + TypeScript frontend (UI, Supabase client, cloud helpers, Markdown renderer, manifest diff) |
-| `supabase/` | SQL migrations (`0001`–`0017`) — schema, Row-Level Security, functions and the `images` storage bucket |
+| `supabase/` | SQL migrations (`0001`–`0018`) — schema, Row-Level Security, functions and the `images` storage bucket |
 | `supabase/functions/feather-storage` | The Edge Function that fronts the storage backend (holds the key) |
 | `docs/CLOUD-SETUP.md` | Step-by-step cloud backend setup |
 | `docs/RELEASING.md` | Release & updater-signing process |
@@ -375,6 +377,7 @@ The cloud schema is a set of ordered SQL files in [`supabase/`](supabase/), appl
 | `0015_invite_by_username.sql` | Add members by email **or** username |
 | `0016_commit_details.sql` | Commit **description** column; `delete_commit` (remove the newest commit of a pending Deploy) |
 | `0017_public_read.sql` | Signed-in users can **read** teams, members, projects and their content (profiles show the full picture); writes and panels stay restricted |
+| `0018_deploy_details.sql` | Optional **`description`** on a Deploy; `release_bundle` accepts a name + description |
 
 All are idempotent — safe to re-run. Cloud commits also need the [`feather-storage`](supabase/functions/feather-storage/README.md) function deployed.
 

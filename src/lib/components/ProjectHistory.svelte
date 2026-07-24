@@ -312,6 +312,9 @@
         {when(asBundle.released_at ?? asBundle.created_at)}
         {#if asBundle.files_count !== null} · {asBundle.files_count} files{/if}
       </p>
+      {#if asBundle.description}
+        <p class="d-desc">{asBundle.description}</p>
+      {/if}
       {#if canWrite}
         <button
           class="rollback"
@@ -533,6 +536,13 @@
   .d-meta {
     font-size: 12px;
     margin-bottom: 12px;
+  }
+
+  .d-desc {
+    font-size: 13px;
+    white-space: pre-wrap;
+    line-height: 1.5;
+    margin: 0 0 14px;
   }
 
   .rollback {

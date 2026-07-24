@@ -243,6 +243,15 @@ pub fn get_project_path(
         .cloned())
 }
 
+/// Every project → local-folder binding on this device. Drives the app-wide
+/// background sync, which checks each bound project for a newer team deploy.
+#[tauri::command]
+pub fn list_project_paths(
+    state: State<'_, AppState>,
+) -> CmdResult<std::collections::HashMap<String, String>> {
+    state.store.load_project_paths().map_err(|e| e.to_string())
+}
+
 /// Remove this device's local binding for a project (does not touch files).
 #[tauri::command]
 pub fn remove_project_path(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
@@ -428,7 +437,7 @@ pub async fn pull_project(
 ) -> CmdResult<()> {
     let mode = match mode.as_str() {
         "import" => PullMode::InitialImport,
-        "sync" => PullMode::SyncIfClean,
+        "sync" => PullMode::Sync,
         other => return Err(format!("unknown pull mode `{other}`")),
     };
     let client = client_for(&state, &project.panel_id)?;
@@ -443,12 +452,14 @@ pub async fn pull_project(
 pub struct RemoteDeployInfo {
     /// A different deploy than this device's record exists on the server.
     pub newer: bool,
-    /// Local uncommitted changes — auto-sync must not run.
-    pub dirty: bool,
+    /// Auto-syncing would overwrite un-deployed local work on a file the new
+    /// deploy does not change — so it must not run automatically.
+    pub conflict: bool,
 }
 
-/// Poll target for multi-device sync: does the server announce a deploy
-/// this device hasn't picked up yet?
+/// Poll target for multi-device sync: does the server announce a deploy this
+/// device hasn't picked up yet, and would pulling it clobber un-deployed local
+/// work? Auto-sync runs when `newer && !conflict`.
 #[tauri::command]
 pub async fn check_remote_deploy(
     state: State<'_, AppState>,
@@ -461,7 +472,7 @@ pub async fn check_remote_deploy(
     else {
         return Ok(RemoteDeployInfo {
             newer: false,
-            dirty: false,
+            conflict: false,
         });
     };
     let record = state
@@ -469,19 +480,37 @@ pub async fn check_remote_deploy(
         .load_deploy_record(&project.id)
         .map_err(|e| e.to_string())?;
     let newer = is_newer(&remote, record.as_ref());
-    let dirty = if newer {
+    let conflict = if newer {
+        let baseline = record.map(|r| r.content).unwrap_or_default();
         let path = project.local_path.clone();
-        tokio::task::spawn_blocking(move || -> Result<bool, feather_core::Error> {
-            git::ensure_repo(&path)?;
-            Ok(git::status(&path)?.dirty)
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?
+        if remote.content.is_empty() {
+            // Legacy marker without a content manifest: fall back to the coarse
+            // "is the working tree dirty" guard so we still never overwrite.
+            tokio::task::spawn_blocking(move || -> Result<bool, feather_core::Error> {
+                git::ensure_repo(&path)?;
+                Ok(git::status(&path)?.dirty)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?
+        } else {
+            let remote_content = remote.content.clone();
+            tokio::task::spawn_blocking(move || -> Result<bool, feather_core::Error> {
+                let local = snapshot::manifest_of(&path)?;
+                Ok(feather_core::sync::sync_conflict(
+                    &baseline,
+                    &remote_content,
+                    &local,
+                ))
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?
+        }
     } else {
         false
     };
-    Ok(RemoteDeployInfo { newer, dirty })
+    Ok(RemoteDeployInfo { newer, conflict })
 }
 
 async fn claim_engine_slot(state: &AppState, project_id: &str) -> CmdResult<()> {

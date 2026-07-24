@@ -4,10 +4,11 @@
 //! - **Initial import**: when a project is linked to a server whose folder is
 //!   still empty, the server's current files are downloaded into it.
 //! - **Multi-device sync**: every deploy writes a small state file
-//!   (`.feather-state.json`) into the target directory. Other devices poll
-//!   it; when it announces a newer deploy and the local working tree is
-//!   clean, they pull the server state and update their local folder,
-//!   deploy record and git history to match.
+//!   (`.feather-state.json`) into the target directory, including a content
+//!   manifest of the deployed tree. Other devices poll it; when it announces a
+//!   newer deploy they pull it automatically — unless [`sync_conflict`] finds
+//!   the pull would overwrite un-deployed local work on a file the deploy does
+//!   not change, in which case they hold back until it's committed/deployed.
 //!
 //! Pull mechanics: list the target directory → server-side compress
 //! (tar.gz) → signed-URL download → extract into the project folder →
@@ -35,6 +36,10 @@ pub struct RemoteState {
     pub timestamp: u64,
     pub commit: Option<String>,
     pub manifest: Vec<String>,
+    /// Content manifest (path → hash) of the deployed tree. Empty on markers
+    /// written before this was tracked. Powers the precise sync guard.
+    #[serde(default)]
+    pub content: crate::snapshot::Manifest,
 }
 
 /// How a pull decides whether it is allowed to touch the local folder.
@@ -43,9 +48,42 @@ pub enum PullMode {
     /// Only pull when the local folder is empty (apart from `.git`) —
     /// used right after linking a project.
     InitialImport,
-    /// Only pull when the git working tree is clean — used for automatic
-    /// multi-device sync so local edits are never overwritten.
-    SyncIfClean,
+    /// Pull the server state into the local folder unconditionally. Multi-device
+    /// sync uses this *after* [`sync_conflict`] has confirmed the pull would not
+    /// destroy un-deployed local work — the safety check lives at the caller so
+    /// the decision can be content-aware, not just "is the tree dirty".
+    Sync,
+}
+
+/// Whether auto-syncing a new deploy into the local folder would destroy
+/// un-deployed local work. A sync overwrites every file the incoming deploy
+/// carries, so it is unsafe exactly when the local copy of such a file differs
+/// from the deploy **and** the deploy did not change that file (its version
+/// equals the baseline the device last had): that difference is a local edit
+/// nobody deployed, and it must not be silently clobbered. Files the deploy
+/// *does* change are expected to be replaced; local-only files the deploy does
+/// not carry are left untouched by the pull, so neither blocks the sync.
+pub fn sync_conflict(
+    baseline: &crate::snapshot::Manifest,
+    remote: &crate::snapshot::Manifest,
+    local: &crate::snapshot::Manifest,
+) -> bool {
+    // Without a known baseline (a legacy record) we can't tell a deploy change
+    // from a local edit, so be conservative: any file the pull would overwrite
+    // with different content counts as a conflict.
+    if baseline.is_empty() {
+        return remote
+            .iter()
+            .any(|(path, hash)| local.get(path).is_some_and(|h| h != hash));
+    }
+    remote
+        .iter()
+        .any(|(path, remote_hash)| match local.get(path) {
+            Some(local_hash) if local_hash != remote_hash => {
+                baseline.get(path) == Some(remote_hash)
+            }
+            _ => false,
+        })
 }
 
 /// Read the remote state marker; `None` when it is missing or unreadable
@@ -75,12 +113,18 @@ pub fn is_newer(remote: &RemoteState, local: Option<&DeployRecord>) -> bool {
 }
 
 /// Serialize the state marker for a just-finished deploy.
-pub fn state_json(timestamp: u64, commit: &Option<String>, manifest: &[String]) -> Vec<u8> {
+pub fn state_json(
+    timestamp: u64,
+    commit: &Option<String>,
+    manifest: &[String],
+    content: &crate::snapshot::Manifest,
+) -> Vec<u8> {
     serde_json::to_vec_pretty(&RemoteState {
         version: 1,
         timestamp,
         commit: commit.clone(),
         manifest: manifest.to_vec(),
+        content: content.clone(),
     })
     .expect("state serializes")
 }
@@ -134,15 +178,12 @@ async fn run_pull(
                         Ok(None)
                     }
                 }
-                PullMode::SyncIfClean => {
+                PullMode::Sync => {
+                    // The caller decides whether syncing is safe (content-aware,
+                    // see `sync_conflict`); here we just make sure a repo exists
+                    // so the pulled state can be checkpointed.
                     git::ensure_repo(&local)?;
-                    if git::status(&local)?.dirty {
-                        Ok(Some(
-                            "local changes present — commit or deploy them before syncing".into(),
-                        ))
-                    } else {
-                        Ok(None)
-                    }
+                    Ok(None)
                 }
             }
         })
@@ -224,11 +265,13 @@ async fn run_pull(
             timestamp: state.timestamp,
             manifest: state.manifest.clone(),
             commit: state.commit.clone(),
+            content: state.content.clone(),
         },
         None => DeployRecord {
             timestamp: crate::deploy::now_secs(),
             manifest: Vec::new(),
             commit: None,
+            content: crate::snapshot::Manifest::new(),
         },
     };
     store.save_deploy_record(&project.id, &record)?;
@@ -238,7 +281,7 @@ async fn run_pull(
         let local = local.clone();
         let message = match mode {
             PullMode::InitialImport => "Initial import from server".to_string(),
-            PullMode::SyncIfClean => "Sync from server (deployed on another device)".to_string(),
+            PullMode::Sync => "Sync from server (deployed on another device)".to_string(),
         };
         tokio::task::spawn_blocking(move || -> Result<(), Error> {
             git::ensure_repo(&local)?;
@@ -351,4 +394,77 @@ fn extract_tar_gz(bytes: &[u8], dest: &Path) -> Result<usize, Error> {
         files += 1;
     }
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_conflict;
+    use crate::snapshot::Manifest;
+
+    fn m(pairs: &[(&str, &str)]) -> Manifest {
+        pairs
+            .iter()
+            .map(|(p, h)| (p.to_string(), h.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn no_conflict_when_local_matches_the_deploy() {
+        let base = m(&[("a", "1"), ("b", "1")]);
+        let remote = m(&[("a", "2"), ("b", "1")]); // deploy changed a
+        let local = m(&[("a", "2"), ("b", "1")]); // already at the deploy
+        assert!(!sync_conflict(&base, &remote, &local));
+    }
+
+    #[test]
+    fn no_conflict_when_only_deploy_changed_files_differ() {
+        // Deploy changes `a`; the device is still at the old `a` (behind, not
+        // edited). That is the normal "just download it" case.
+        let base = m(&[("a", "1"), ("b", "1")]);
+        let remote = m(&[("a", "2"), ("b", "1")]);
+        let local = m(&[("a", "1"), ("b", "1")]);
+        assert!(!sync_conflict(&base, &remote, &local));
+    }
+
+    #[test]
+    fn conflict_when_local_edited_a_file_the_deploy_left_alone() {
+        // Deploy changes `a`; the device has an un-deployed edit to `b`, which
+        // the deploy does not touch → pulling would lose it.
+        let base = m(&[("a", "1"), ("b", "1")]);
+        let remote = m(&[("a", "2"), ("b", "1")]);
+        let local = m(&[("a", "1"), ("b", "local")]);
+        assert!(sync_conflict(&base, &remote, &local));
+    }
+
+    #[test]
+    fn no_conflict_when_local_edit_is_on_a_file_the_deploy_also_changes() {
+        // Both edited `a`; the deploy governs it, so it is replaced (per spec).
+        let base = m(&[("a", "1")]);
+        let remote = m(&[("a", "2")]);
+        let local = m(&[("a", "local")]);
+        assert!(!sync_conflict(&base, &remote, &local));
+    }
+
+    #[test]
+    fn local_only_files_never_block() {
+        // The pull only writes files the deploy carries; a local-only file is
+        // left untouched, so it is not a conflict.
+        let base = m(&[("a", "1")]);
+        let remote = m(&[("a", "1")]);
+        let local = m(&[("a", "1"), ("scratch.txt", "mine")]);
+        assert!(!sync_conflict(&base, &remote, &local));
+    }
+
+    #[test]
+    fn unknown_baseline_blocks_any_overwrite() {
+        // With no baseline we cannot tell edits from deploy changes, so any file
+        // the pull would overwrite with different content is treated as unsafe.
+        let base = Manifest::new();
+        let remote = m(&[("a", "2")]);
+        let local = m(&[("a", "1")]);
+        assert!(sync_conflict(&base, &remote, &local));
+        // …but a pull that only adds files is still fine.
+        let local_ok = m(&[("a", "2")]);
+        assert!(!sync_conflict(&base, &remote, &local_ok));
+    }
 }

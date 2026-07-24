@@ -707,6 +707,7 @@ export interface DeployBundle {
   released_by: string | null;
   files_count: number | null;
   message: string | null;
+  description: string | null;
 }
 
 export interface CloudCommit {
@@ -778,12 +779,14 @@ export async function releaseBundle(
   files: number | null,
   message: string | null,
   manifest: Manifest,
+  description?: string | null,
 ): Promise<DeployBundle> {
   const { data, error } = await supabase.rpc("release_bundle", {
     p_project: projectId,
     p_files: files,
     p_message: message,
     p_manifest: manifest,
+    p_description: description ?? null,
   });
   if (error) throw new Error(error.message);
   return bundleFrom(data);
@@ -833,7 +836,7 @@ export async function listBundles(projectId: string): Promise<DeployBundle[]> {
   const { data, error } = await supabase
     .from("deploy_bundles")
     .select(
-      "id, project_id, team_id, status, created_at, released_at, released_by, files_count, message",
+      "id, project_id, team_id, status, created_at, released_at, released_by, files_count, message, description",
     )
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
