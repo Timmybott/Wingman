@@ -253,7 +253,7 @@ The Deploy tab's **History** has two categories:
 - **Deploys** — every released Deploy. A deploy's detail lists exactly the **commits it shipped** (a deploy changes nothing on its own) and the [issues](#issues-linked-to-deploys--commits) raised in that cycle, with a **Rollback to this deploy** button.
 - **Commits** — every commit across the project. A commit's detail shows its own **line-level file diff** and the issues it fixed.
 
-Any changed file is **clickable for a line-level diff**. The **Deploy history** timeline at the bottom of the Deploy tab is clickable too — each row opens the shared history focused on that deploy, so you go from "this deploy happened" straight to its commits and diffs. Everyone on the team sees the same history.
+Any changed file is **clickable for a line-level diff**. For a file changed in the current Deploy, the "before" side is its currently-deployed content, read from the correct path under the project's deploy target directory (so the diff opens cleanly even when the project deploys into a subfolder). The **Deploy history** timeline at the bottom of the Deploy tab is clickable too — each row opens the shared history focused on that deploy, so you go from "this deploy happened" straight to its commits and diffs. Everyone on the team sees the same history.
 
 The history, the console, the file editor and every diff open as **full pages** — not slide-in drawers or pop-up modals — each with its own **Back** button. Feather keeps a navigation stack behind the scenes, so **Back always returns to the page you actually came from** (a teammate's profile opened from inside a project returns to that project, not the projects list).
 
