@@ -68,6 +68,32 @@
     error: string | null;
   } | null>(null);
 
+  /**
+   * The absolute path on the server for a project-relative file. Deploys land
+   * under the project's `target_dir`, and Pterodactyl's files API wants an
+   * absolute path — reading the bare relative path (e.g. `src/main.js`) made
+   * Wings fail with a 500 "DaemonConnectionException", breaking commit diffs.
+   */
+  function serverPath(rel: string): string {
+    const dir = (project.target_dir ?? "").trim().replace(/^\/+|\/+$/g, "");
+    const clean = rel.replace(/^\/+/, "");
+    return dir === "" ? `/${clean}` : `/${dir}/${clean}`;
+  }
+
+  /**
+   * A modified file's "before" side: its content as currently deployed, read
+   * from the server. Degrades to empty (so the diff still renders the new
+   * content) if the server can't return it, instead of failing the whole view.
+   */
+  async function deployedFile(rel: string): Promise<string> {
+    try {
+      return await readServerFile(project.panel_id ?? "", project.server_identifier ?? "", serverPath(rel));
+    } catch (e) {
+      console.error(`could not read deployed file ${rel}:`, e);
+      return "";
+    }
+  }
+
   /** Open the line-level diff for one changed path (server version vs local). */
   async function showFileDiff(path: string, change: ChangeKind) {
     openDiff = { path, oldText: "", newText: "", loading: true, error: null };
@@ -75,7 +101,7 @@
       const [oldText, newText] = await Promise.all([
         change === "added"
           ? Promise.resolve("")
-          : readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path),
+          : deployedFile(path),
         change === "deleted" ? Promise.resolve("") : readLocalFile(config, path),
       ]);
       openDiff = { path, oldText, newText, loading: false, error: null };
@@ -104,7 +130,7 @@
         const r = await fileContentAt(storedCommits, 0, path, token, project.id);
         oldText = r.found
           ? r.text
-          : await readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path);
+          : await deployedFile(path);
       }
       openDiff = { path, oldText, newText, loading: false, error: null };
     } catch (e) {
@@ -243,7 +269,7 @@
         const r = await fileContentAt(commits, idx + 1, path, token, project.id);
         oldText = r.found
           ? r.text
-          : await readServerFile(project.panel_id ?? "", project.server_identifier ?? "", path);
+          : await deployedFile(path);
       }
       openDiff = { path, oldText, newText: newRes.text, loading: false, error: null };
     } catch (e) {

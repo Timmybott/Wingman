@@ -6,6 +6,16 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Viewing a commit's file diff no longer fails with a panel 500.** The "before"
+  side of a modified file was read from the server using the bare
+  project-relative path, ignoring the project's deploy target directory and the
+  leading slash Pterodactyl expects — so Wings returned a
+  `DaemonConnectionException` (HTTP 500) and the diff wouldn't open. Feather now
+  reads the correct absolute server path, and falls back to showing just the new
+  version if the server still can't return the file.
+
 ## [2.6.3] — 2026-07-23
 
 Better commit/deploy forms and genuinely automatic team sync.
