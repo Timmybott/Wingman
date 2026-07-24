@@ -6,6 +6,37 @@ All notable changes to Feather are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.6.3] — 2026-07-23
+
+Better commit/deploy forms and genuinely automatic team sync.
+
+> **New database migration.** Run `supabase/0018_deploy_details.sql` once in the
+> Supabase SQL editor (after 0001–0017). See
+> [docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md).
+
+### Added
+
+- **A deploy has a name and description too.** Like a commit, a deploy now takes
+  an optional name and a Markdown description (shown in its history entry) —
+  migration `0018`.
+
+### Changed
+
+- **Commit and deploy fields are stacked.** The name field sits on its own line
+  with the taller description below it and the button underneath, instead of the
+  fields sitting side by side.
+- **Deploys sync to the whole team automatically.** When a teammate ships a
+  deploy, every other member's local folder now updates on its own — while the
+  app is open (you no longer need the project's Deploy tab in front of you), and
+  on the next launch for anyone who was offline.
+- **Auto-sync no longer stalls on the normal case.** A new deploy is, of course,
+  different from what teammates have locally; that alone used to block the sync
+  behind a "commit or discard" banner. Feather now compares file contents and
+  pulls the deploy whenever it's safe, holding back **only** when the pull would
+  overwrite an **un-deployed local edit to a file the deploy doesn't change** —
+  so your uncommitted work is protected without getting in the way of routine
+  updates.
+
 ## [2.6.2] — 2026-07-23
 
 Profile and team pages now show the **whole** picture, not just what you share.
@@ -513,6 +544,7 @@ First feature-complete version — everything from the v1 specification.
 - **Easy install** — Windows NSIS installer and a one-line Linux installer
   (`install.sh`, .deb on apt-based distros, AppImage elsewhere).
 
+[2.6.3]: https://github.com/Timmybott/Feather/releases/tag/v2.6.3
 [2.6.2]: https://github.com/Timmybott/Feather/releases/tag/v2.6.2
 [2.6.1]: https://github.com/Timmybott/Feather/releases/tag/v2.6.1
 [2.6.0]: https://github.com/Timmybott/Feather/releases/tag/v2.6.0

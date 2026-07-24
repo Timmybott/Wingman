@@ -174,6 +174,11 @@ export function checkRemoteDeploy(project: ProjectConfig): Promise<RemoteDeployI
   return invoke<RemoteDeployInfo>("check_remote_deploy", { project });
 }
 
+/** Every project → local-folder binding on this device (drives background sync). */
+export function listProjectPaths(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("list_project_paths");
+}
+
 export function repoStatus(project: ProjectConfig): Promise<RepoStatus> {
   return invoke<RepoStatus>("repo_status", { project });
 }

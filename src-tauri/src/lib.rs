@@ -51,6 +51,7 @@ pub fn run() {
             commands::send_console_command,
             commands::set_project_path,
             commands::get_project_path,
+            commands::list_project_paths,
             commands::remove_project_path,
             commands::remove_local_project,
             commands::deploy_project,

@@ -2,7 +2,6 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import {
-    checkRemoteDeploy,
     deployBundle,
     onDeployEvent,
     projectHistory,
@@ -10,6 +9,8 @@
     pullProject,
     rollbackToSnapshot,
   } from "../api";
+  import { setSyncBusy, syncStatus, syncVersion } from "../sync.svelte";
+  import MarkdownEditor from "./MarkdownEditor.svelte";
   import {
     anonKey,
     currentBundle,
@@ -63,6 +64,10 @@
   );
 
   let step = $state<DeployStep | null>(null);
+  // A deploy's optional name + Markdown description, applied to the bundle on
+  // release (shown in history).
+  let deployName = $state("");
+  let deployDescription = $state("");
   let showHistory = $state(false);
   // When the history drawer is opened from a Deploy-history row, the row's
   // timestamp so the drawer can jump straight to that deploy.
@@ -75,20 +80,39 @@
   let cloudRefresh = $state(0);
   // Whether an in-flight engine run should be recorded, and as what.
   let currentKind: DeployKind | null = null;
-  // The in-flight bundle deploy's summary + the server state it produces (the
-  // newest commit's manifest), used to release the bundle once it lands.
-  let pendingDeploy: { summary: string | null; manifest: Manifest } | null = null;
+  // The in-flight bundle deploy's name/description + the server state it
+  // produces (the newest commit's manifest), used to release the bundle once it
+  // lands.
+  let pendingDeploy: {
+    summary: string | null;
+    description: string | null;
+    manifest: Manifest;
+  } | null = null;
   // The manifest of the deploy being rolled back to, used to reset the server
   // baseline once the rollback lands.
   let pendingRollbackManifest: Manifest | null = null;
   // An import is running; on completion the local folder mirrors the server, so
   // we record it as the diff baseline.
   let pullPending = false;
-  // A teammate deployed a newer version but our working tree is dirty, so we
-  // can't auto-sync — shown as a banner until the tree is clean.
-  let syncBlocked = $state(false);
 
   const running = $derived(step !== null && step.step !== "done" && step.step !== "failed");
+  // The app-wide background sync's status for this project (banner + reload).
+  const syncing = $derived(syncStatus(project.id));
+
+  // While this panel runs an engine op, block the background sweep from pulling
+  // the same project underneath it.
+  $effect(() => setSyncBusy(project.id, running));
+
+  // When the background sweep syncs this project, reload the diff and history.
+  let seenSyncVersion = 0;
+  $effect(() => {
+    const v = syncVersion(project.id);
+    if (v !== seenSyncVersion) {
+      seenSyncVersion = v;
+      cloudRefresh += 1;
+      void loadDeploys();
+    }
+  });
 
   const progressLabel = $derived.by(() => {
     if (!step) return null;
@@ -110,7 +134,6 @@
   });
 
   let unlisten: UnlistenFn | undefined;
-  let syncTimer: ReturnType<typeof setInterval> | undefined;
   onMount(() => {
     void loadDeploys();
     onDeployEvent(project.id, handleStep).then((u) => {
@@ -120,18 +143,10 @@
       if (autoImport && config) {
         onImported?.();
         void importFiles();
-      } else {
-        // Only check now when nothing else is starting an engine run, so the
-        // sync pull can't race the auto-import for the engine slot.
-        void checkSync();
       }
-      // Keep this device in sync with teammates' deploys: poll the server's
-      // deploy marker and pull the new state into the local folder when clean.
-      syncTimer = setInterval(() => void checkSync(), 30_000);
     });
     return () => {
       unlisten?.();
-      if (syncTimer) clearInterval(syncTimer);
     };
   });
 
@@ -140,35 +155,6 @@
       deploys = await listDeploys(project.id);
     } catch {
       // timeline is best effort
-    }
-  }
-
-  /**
-   * Keep the local folder current with teammates' deploys. If the server
-   * announces a deploy newer than this device's record, pull it in — but only
-   * when the working tree is clean, so uncommitted work is never overwritten
-   * (a dirty tree shows a banner instead).
-   */
-  async function checkSync() {
-    const cfg = config;
-    if (!cfg || running) return;
-    try {
-      const info = await checkRemoteDeploy(cfg);
-      if (!info.newer) {
-        syncBlocked = false;
-        return;
-      }
-      if (info.dirty) {
-        syncBlocked = true;
-        return;
-      }
-      syncBlocked = false;
-      currentKind = null; // a sync is not recorded as a deploy…
-      pullPending = true; // …but it does make the local folder mirror the server
-      step = { step: "downloading", percent: 0 };
-      await pullProject(cfg, "sync");
-    } catch {
-      // best effort — never disrupt the tab
     }
   }
 
@@ -241,7 +227,11 @@
         // recording the new server state (the newest commit's manifest) so the
         // diff resets and a fresh Deploy opens. Best effort — never fails the run.
         if (kind === "deploy" && pendingDeploy) {
-          await releaseCurrentBundle(pendingDeploy.manifest);
+          await releaseCurrentBundle(
+            pendingDeploy.manifest,
+            pendingDeploy.summary,
+            pendingDeploy.description,
+          );
         } else if (kind === "rollback" && pendingRollbackManifest) {
           // The server now holds the rolled-back deploy — make it the baseline.
           try {
@@ -268,10 +258,14 @@
    * and a fresh Deploy opens for the next commits. Best effort: the files are
    * already live, so bundle bookkeeping must never surface as a deploy failure.
    */
-  async function releaseCurrentBundle(manifest: Manifest) {
+  async function releaseCurrentBundle(
+    manifest: Manifest,
+    message: string | null,
+    description: string | null,
+  ) {
     try {
       await currentBundle(project.id); // ensure a pending bundle exists to release
-      await releaseBundle(project.id, Object.keys(manifest).length, null, manifest);
+      await releaseBundle(project.id, Object.keys(manifest).length, message, manifest, description);
       cloudRefresh += 1;
     } catch (e) {
       console.error("bundle release skipped:", e);
@@ -296,7 +290,13 @@
         stored.map(async (c) => ({ id: c.id, manifest: await getCommitManifest(c.id) })),
       );
       const newest = commits[commits.length - 1];
-      pendingDeploy = { summary: stored[stored.length - 1].message, manifest: newest.manifest };
+      pendingDeploy = {
+        summary: deployName.trim() || stored[stored.length - 1].message,
+        description: deployDescription.trim() || null,
+        manifest: newest.manifest,
+      };
+      deployName = "";
+      deployDescription = "";
       currentKind = "deploy";
       step = { step: "downloading", percent: 0 };
       const token = await sessionToken();
@@ -392,18 +392,33 @@
       </p>
     </div>
   {:else}
-    {#if syncBlocked}
+    {#if syncing === "conflict"}
       <div class="card sync-banner">
         <p>
-          A teammate shipped a newer deploy. Commit or discard your local
-          changes and it will sync into this folder automatically.
+          A teammate shipped a newer deploy that changes files you have
+          <strong>un-deployed local edits</strong> to. Commit or deploy your
+          changes and the new deploy will sync into this folder automatically.
         </p>
+      </div>
+    {:else if syncing === "syncing"}
+      <div class="card sync-banner">
+        <p>Syncing your team's latest deploy into this folder…</p>
       </div>
     {/if}
 
     <CloudCommits {project} {config} refresh={cloudRefresh} onCommitted={loadDeploys} />
 
     <div class="card actions-card">
+      <div class="deploy-fields">
+        <input
+          class="name-field"
+          bind:value={deployName}
+          placeholder="Deploy name (optional)…"
+          autocomplete="off"
+          disabled={running}
+        />
+        <MarkdownEditor bind:value={deployDescription} rows={3} placeholder="Deploy description (optional) — what's shipping…" />
+      </div>
       <div class="deploy-row">
         <button class="primary" onclick={deploy} disabled={running}>
           {running ? "Working…" : "Deploy"}
@@ -430,7 +445,7 @@
       {:else if step?.step === "failed"}
         <p class="error" title={step.message}>Failed: {step.message}</p>
       {:else if step?.step === "done"}
-        <p class="ok">Deployed ✓ {step.files} files{step.deleted > 0 ? `, ${step.deleted} removed` : ""}</p>
+        <p class="ok">Deployed — {step.files} files{step.deleted > 0 ? `, ${step.deleted} removed` : ""}</p>
       {/if}
 
       {#if error}<p class="error">{error}</p>{/if}
@@ -493,6 +508,17 @@
   .notice p {
     margin: 0;
     line-height: 1.5;
+  }
+
+  .deploy-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .deploy-fields .name-field {
+    width: 100%;
   }
 
   .deploy-row {

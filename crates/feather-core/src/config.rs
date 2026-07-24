@@ -78,6 +78,12 @@ pub struct DeployRecord {
     /// deploy" and marks the current state in the history view.
     #[serde(default)]
     pub commit: Option<String>,
+    /// Content manifest (path → hash) of the deployed tree. Lets multi-device
+    /// sync tell *what* a new deploy changed, so it only blocks auto-download
+    /// when un-deployed local edits touch files the deploy leaves untouched.
+    /// Empty on records written before this was tracked.
+    #[serde(default)]
+    pub content: crate::snapshot::Manifest,
 }
 
 /// Loads and saves the JSON config files. The directory is injected so the
